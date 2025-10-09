@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --app-font: "Inter", "Sarabun", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Thai", Arial, sans-serif;
+}
+
+body { font-family: var(--app-font); }  /* ใช้ Inter ก่อน, ไทย fallback Sarabun */
+html, body, #root { height: 100%; }

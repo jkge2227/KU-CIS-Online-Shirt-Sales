@@ -1,0 +1,235 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Users {
+  id         Int      @id @default(autoincrement())
+  first_name String
+  last_name  String
+  email      String   @unique(map: "Users_email_key")
+  password   String
+  phone      String
+  id_card    String
+  role       String   @default("user")
+  enabled    Boolean  @default(true)
+  address    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // back-relations
+  carts         Cart[]
+  orders        Order[]
+  reviews       ProductReview[]
+  orderhistory  orderhistory[]
+  PasswordOTP   PasswordOTP[]
+}
+
+model Category {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique(map: "Category_name_key")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // back-relations
+  products Product[]
+}
+
+model Size {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique(map: "Size_name_key")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  variants ProductVariant[]
+}
+
+model Generation {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique(map: "Generation_name_key")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  variants ProductVariant[]
+}
+
+model Product {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String
+  price       Float
+  sold        Int      @default(0)
+  quantity    Int
+  categoryId  Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // ★ สรุปเรตติ้ง (ถ้าไม่ใช้ ลบสองบรรทัดนี้ได้)
+  ratingAvg   Float @default(0)
+  ratingCount Int   @default(0)
+
+  // relations
+  category Category?        @relation(fields: [categoryId], references: [id])
+  images   Image[]
+  variants ProductVariant[]
+  reviews  ProductReview[]
+
+  @@index([categoryId], map: "Product_categoryId_idx")
+}
+
+model ProductVariant {
+  id           Int      @id @default(autoincrement())
+  productId    Int
+  sizeId       Int
+  generationId Int?
+  quantity     Int
+  sku          String?  @unique(map: "ProductVariant_sku_key")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  product    Product     @relation(fields: [productId], references: [id])
+  size       Size        @relation(fields: [sizeId], references: [id])
+  generation Generation? @relation(fields: [generationId], references: [id])
+
+  orders  ProductOnOrder[]
+  carts   ProductOnCart[]
+  reviews ProductReview[]
+
+  @@unique([productId, sizeId, generationId], map: "ProductVariant_productId_sizeId_generationId_key")
+  @@index([productId], map: "ProductVariant_productId_idx")
+  @@index([sizeId], map: "ProductVariant_sizeId_idx")
+  @@index([generationId], map: "ProductVariant_generationId_idx")
+}
+
+model Order {
+  id          Int      @id @default(autoincrement())
+  cartTotal   Float
+  orderStatus String   @default("Not Process")
+  orderById   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  pickupPlace String?
+  pickupAt    DateTime?
+  pickupNote  String?
+
+  orderBuy Users            @relation(fields: [orderById], references: [id])
+  products ProductOnOrder[]
+
+  @@index([orderById], map: "Order_orderById_idx")
+}
+
+model ProductOnOrder {
+  id             Int     @id @default(autoincrement())
+  orderId        Int
+  variantId      Int
+  productTitle   String
+  sizeName       String
+  generationName String?
+  price          Float
+  count          Int
+
+  order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+
+  @@index([orderId], map: "ProductOnOrder_orderId_idx")
+  @@index([variantId], map: "ProductOnOrder_variantId_idx")
+}
+
+model Cart {
+  id        Int      @id @default(autoincrement())
+  cartTotal Float
+  orderById Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orderBuy Users           @relation(fields: [orderById], references: [id])
+  products ProductOnCart[]
+
+  @@index([orderById], map: "Cart_orderById_idx")
+}
+
+model ProductOnCart {
+  id             Int     @id @default(autoincrement())
+  cartId         Int
+  variantId      Int
+  productTitle   String
+  sizeName       String
+  generationName String?
+  price          Float
+  count          Int
+
+  cart    Cart           @relation(fields: [cartId], references: [id])
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+
+  @@index([cartId], map: "ProductOnCart_cartId_idx")
+  @@index([variantId], map: "ProductOnCart_variantId_idx")
+}
+
+model Image {
+  id         Int      @id @default(autoincrement())
+  asset_id   String
+  public_id  String
+  url        String
+  secure_url String
+  productId  Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([productId], map: "Image_productId_idx")
+}
+
+model ProductReview {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  productId Int
+  variantId Int?
+  rating    Int
+  text      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    Users           @relation(fields: [userId], references: [id])
+  product Product         @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@unique([userId, productId, variantId], map: "Review_unique_per_user_product_variant")
+  @@index([productId], map: "Review_productId_idx")
+  @@index([variantId], map: "Review_variantId_idx")
+}
+
+model orderhistory {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  orderId     Int? // อาจเป็น null ถ้าลบออเดอร์สดไปแล้ว
+  cartTotal   Float
+  orderStatus String
+  products    Json // เก็บรายการสินค้าเป็น JSON snapshot
+  createdAt   DateTime // เวลาที่สร้างออเดอร์สด
+  archivedAt  DateTime @default(now()) // เวลาบันทึก/อัปเดตประวัติ
+
+  user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orderId], map: "OrderHistory_user_order_unique")
+}
+
+model PasswordOTP {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  codeHash  String
+  purpose   String    @default("reset") // ใช้ "reset" สำหรับลืมรหัสผ่าน
+  attempts  Int       @default(0) // นับจำนวนพยายาม
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+
+  user Users @relation(fields: [userId], references: [id])
+
+  @@index([userId, expiresAt])
+}
