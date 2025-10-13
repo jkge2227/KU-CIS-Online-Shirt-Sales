@@ -236,15 +236,7 @@ export default function EditProduct() {
                                 className="mt-1 w-full rounded-lg border border-gray-300 p-2.5 focus:outline-none focus:ring-2 focus:ring-gray-700/10"
                             />
                         </div>
-                        <div>
-                            <label className="text-sm text-gray-700">จำนวนรวม</label>
-                            <input
-                                type="number" name="quantity" value={form.quantity}
-                                onChange={(e) => setForm(f => ({ ...f, quantity: Math.max(0, Number(e.target.value || 0)) }))}
-                                className="mt-1 w-full rounded-lg border border-gray-300 p-2.5 focus:outline-none focus:ring-2 focus:ring-gray-700/10"
-                            />
-                            <p className="mt-1 text-xs text-gray-500">สต็อกรวม <b>{totalStock}</b></p>
-                        </div>
+                        
                     </div>
 
                     {/* หมวดหมู่แบบชิป */}

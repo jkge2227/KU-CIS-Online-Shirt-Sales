@@ -157,21 +157,7 @@ const HeaderAdmin = () => {
   return (
     <header className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
       <div className="mx-auto h-16 px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-        <NavLink
-          to="/admin/statusorder"
-          end
-          className={({ isActive }) =>
-            [
-              "inline-flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors",
-              isActive
-                ? "bg-gray-800 text-white border-black"
-                : "border-gray-200 text-gray-800 hover:bg-gray-800 hover:text-white hover:border-black"
-            ].join(" ")
-          }
-          title="ไปหน้า คำสั่งซื้อ"
-        >
-          <ShoppingCart className="h-5 w-5 text-current" />
-          <span className="hidden sm:inline font-medium">คำสั่งซื้อ</span>
+        <NavLink>
         </NavLink>
 
         <div className="flex items-center gap-3">

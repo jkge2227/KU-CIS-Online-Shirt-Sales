@@ -6,12 +6,12 @@ const router = express.Router()
 //// import controller
 const { getOrderAdmin, changeOrderstatus, listAllOrders,
     updateOrderStatus,
-    cancelOrderAdmin,
-    deleteOrderAdmin,
     lowStockNotifications,
     newOrderNotifications,
     setPickupForOrders,
-    updatePickupForOrder, } = require('../controllers/admin')
+    updatePickupForOrder,
+    adminCancelOrder,
+    updateCancelInfo, } = require('../controllers/admin')
 
 router.post('/admin/order-status', authCheck, changeOrderstatus)
 router.get('/admin/order', authCheck, getOrderAdmin)
@@ -21,10 +21,13 @@ router.patch('/admin/orders/:id/pickup', authCheck, adminCheck, updatePickupForO
 
 router.get("/admin/orders", authCheck, listAllOrders);
 router.put("/admin/orders/:id/status", authCheck, updateOrderStatus);
-router.put("/admin/orders/:id/cancel", authCheck, cancelOrderAdmin);
-router.delete("/admin/orders/:id", authCheck, deleteOrderAdmin);
+router.put("/admin/orders/:id/cancel", authCheck, adminCheck, adminCancelOrder);
+router.patch("/admin/orders/:id/cancel", authCheck, adminCheck, updateCancelInfo);
+
 router.get("/admin/low-stock",authCheck,adminCheck, lowStockNotifications);
 router.get('/admin/new-orders',authCheck,adminCheck, newOrderNotifications);
+
+
 
 
 module.exports = router

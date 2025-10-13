@@ -89,9 +89,9 @@
 
 // export default FormGeneration;
 import React, { useEffect, useMemo, useState } from "react";
-import { createGeneration, removeGeneration } from "../../api/Generation";
+import { createGeneration, removeGeneration, updateGeneration } from "../../api/Generation";
 import useEcomStore from "../../store/ecom-store";
-import { Layers, Plus, Trash2, Search, AlertTriangle } from "lucide-react";
+import { Layers, Plus, Trash2, Search, AlertTriangle, PencilLine, Save } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const FormGeneration = () => {
@@ -102,6 +102,11 @@ const FormGeneration = () => {
   const [name, setName] = useState("");
   const [query, setQuery] = useState("");
   const [confirmId, setConfirmId] = useState(null);
+
+  // ✅ state สำหรับแก้ไข
+  const [editId, setEditId] = useState(null);
+  const [editName, setEditName] = useState("");
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [topToast, setTopToast] = useState(null); // { message }
@@ -185,6 +190,32 @@ const FormGeneration = () => {
     }
   };
 
+  // ✅ เริ่มแก้ไข
+  const startEdit = (item) => {
+    setEditId(item.id);
+    setEditName(item.name || "");
+  };
+
+  // ✅ บันทึกการแก้ไข
+  const handleUpdate = async () => {
+    if (!editName.trim()) return showTopToast("ยังไม่ได้กรอกข้อมูล");
+    try {
+      setIsLoading(true);
+      await updateGeneration(token, editId, { name: editName.trim() });
+      showTopToast("บันทึกการแก้ไขสำเร็จ");
+      setEditId(null);
+      setEditName("");
+      await getGeneration(token);
+    } catch (err) {
+      console.error(err);
+      const msg = err?.response?.data?.message || "บันทึกไม่สำเร็จ";
+      setError(msg);
+      showTopToast(msg, 1800);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const countText = `${filtered.length} รุ่น`;
 
   return (
@@ -199,7 +230,7 @@ const FormGeneration = () => {
             </div>
             <div>
               <h1 className="text-xl font-semibold text-gray-900">จัดการรุ่นเสื้อ</h1>
-              <p className="text-sm text-gray-500">เพิ่ม / ค้นหา / ลบ รุ่นเสื้อ</p>
+              <p className="text-sm text-gray-500">เพิ่ม / ค้นหา / ลบ / แก้ไข รุ่นเสื้อ</p>
             </div>
           </div>
           <span className="text-sm px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">{countText}</span>
@@ -284,6 +315,16 @@ const FormGeneration = () => {
                       <span className="truncate text-gray-800">{item.name}</span>
                     </div>
                     <div className="flex items-center gap-2">
+                      {/* ✅ ปุ่มแก้ไข */}
+                      <button
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-amber-700 border border-amber-200 bg-white hover:bg-amber-50 hover:border-amber-300 transition"
+                        onClick={() => startEdit(item)}
+                        aria-label={`แก้ไข ${item.name}`}
+                      >
+                        <PencilLine className="w-4 h-4" />
+                        แก้ไข
+                      </button>
+
                       <button
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-red-600 border border-red-200 bg-white hover:bg-red-50 hover:border-red-300 transition"
                         onClick={() => setConfirmId(item.id)}
@@ -340,6 +381,65 @@ const FormGeneration = () => {
                 >
                   <Trash2 className="w-4 h-4" />
                   ลบเลย
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ✅ Edit Dialog */}
+      <AnimatePresence>
+        {editId !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.98, opacity: 0 }}
+              className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-gray-100"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setEditId(null);
+                if (e.key === "Enter") handleUpdate();
+              }}
+            >
+              <div className="p-6">
+                <h2 className="text-lg font-semibold text-gray-900">แก้ไขรุ่นเสื้อ</h2>
+                <p className="text-gray-500 text-sm mt-1">ปรับชื่อรุ่นแล้วกดบันทึก</p>
+
+                <label className="sr-only" htmlFor="edit-generation-name">ชื่อรุ่น</label>
+                <input
+                  id="edit-generation-name"
+                  className="mt-4 w-full px-4 py-2.5 rounded-xl border border-gray-200 shadow-sm focus:outline-none focus:ring-4 focus:ring-amber-100 focus:border-amber-300"
+                  value={editName}
+                  placeholder="เช่น KU82 KU83 KU84"
+                  onChange={(e) => setEditName(e.target.value)}
+                />
+                <p className="text-xs py-2 text-gray-600">
+                  หลีกเลี่ยงชื่อซ้ำกับรายการอื่น (ระบบจะเตือนหากซ้ำ)
+                </p>
+              </div>
+
+              <div className="px-6 pb-6 flex items-center justify-end gap-3">
+                <button
+                  className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition"
+                  onClick={() => { setEditId(null); setEditName(""); }}
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-600 text-white hover:bg-amber-700 transition disabled:opacity-60"
+                  disabled={!editName.trim() || isLoading}
+                  onClick={handleUpdate}
+                >
+                  <Save className="w-4 h-4" />
+                  บันทึก
                 </button>
               </div>
             </motion.div>

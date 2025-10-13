@@ -294,14 +294,6 @@ const HomeUser = () => {
             <Label>นามสกุล</Label>
             <Inp value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} placeholder="นามสกุล" />
           </div>
-
-          <div>
-            <Label>อีเมล (ใช้เข้าสู่ระบบ)</Label>
-            <div className="mt-1 relative">
-              <Mail className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <Inp value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@example.com" style={{ paddingLeft: 36 }} />
-            </div>
-          </div>
           <div>
             <Label>เบอร์โทร</Label>
             <div className="mt-1 relative">
@@ -343,13 +335,13 @@ const HomeUser = () => {
       {/* เปลี่ยนรหัสผ่าน (รู้รหัสเดิม) */}
       <Section
         title="เปลี่ยนรหัสผ่าน"
-        icon={<KeyRound className="h-5 w-5 text-amber-600" />}
+        icon={<KeyRound className="h-5 w-5 text-gray-600" />}
         footer={
           <div className="flex items-center justify-between">
             <button
               onClick={onChangePwd}
               disabled={savingPwd}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white ${savingPwd ? "bg-amber-300 cursor-not-allowed" : "bg-gray-700 hover:bg-gray-800"}`}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white ${savingPwd ? "bg-gray-300 cursor-not-allowed" : "bg-gray-700 hover:bg-gray-800"}`}
               type="button"
             >
               เปลี่ยนรหัสผ่าน

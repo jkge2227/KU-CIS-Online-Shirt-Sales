@@ -19,7 +19,9 @@ const Login = () => {
 
   const roleRedirect = (role) => {
     if (role === "admin") navigate("/admin/dashboard");
-    else navigate(-1);
+    else {
+      navigate("/shop"); 
+    }
   };
 
   const handleSubmit = async (e) => {

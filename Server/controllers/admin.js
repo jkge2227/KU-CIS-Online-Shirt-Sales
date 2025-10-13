@@ -1,5 +1,6 @@
 const prisma = require("../config/prisma")
 const norm = (s) => String(s || "").trim().toLowerCase();
+const { PrismaClient } = require("@prisma/client");
 
 exports.changeOrderstatus = async (req, res) => {
   try {
@@ -201,9 +202,13 @@ exports.listAllOrders = async (req, res) => {
           orderStatus: true,
           createdAt: true,
           updatedAt: true,
-          pickupPlace: true,  
-          pickupAt: true,     
-          pickupNote: true,   
+          cancelReason: true,
+          cancelNote: true,
+          canceledAt: true,
+          canceledById: true,
+          pickupPlace: true,
+          pickupAt: true,
+          pickupNote: true,
           orderBuy: {
             select: {
               id: true, first_name: true, last_name: true, email: true, phone: true,
@@ -301,89 +306,38 @@ exports.updateOrderStatus = async (req, res) => {
 };
 
 // แอดมินยกเลิกออเดอร์ + คืนสต็อก
-exports.cancelOrderAdmin = async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!id) return res.status(400).json({ message: "missing id" });
+// exports.cancelOrderAdmin = async (req, res) => {
+//   try {
+//     const id = Number(req.params.id);
+//     if (!id) return res.status(400).json({ message: "missing id" });
 
-    const order = await prisma.order.findUnique({
-      where: { id },
-      select: { id: true, orderStatus: true, products: { select: { variantId: true, count: true } } },
-    });
-    if (!order) return res.status(404).json({ message: "ไม่พบคำสั่งซื้อ" });
+//     const order = await prisma.order.findUnique({
+//       where: { id },
+//       select: { id: true, orderStatus: true, products: { select: { variantId: true, count: true } } },
+//     });
+//     if (!order) return res.status(404).json({ message: "ไม่พบคำสั่งซื้อ" });
 
-    await prisma.$transaction(async (tx) => {
-      // คืนสต็อกกลับไปยัง ProductVariant
-      for (const line of order.products) {
-        const qty = Number(line.count) || 0;
-        if (qty > 0) {
-          await tx.productVariant.updateMany({
-            where: { id: line.variantId },
-            data: { quantity: { increment: qty } },
-          });
-        }
-      }
-      await tx.order.update({ where: { id: order.id }, data: { orderStatus: "ยกเลิก" } });
-    });
+//     await prisma.$transaction(async (tx) => {
+//       // คืนสต็อกกลับไปยัง ProductVariant
+//       for (const line of order.products) {
+//         const qty = Number(line.count) || 0;
+//         if (qty > 0) {
+//           await tx.productVariant.updateMany({
+//             where: { id: line.variantId },
+//             data: { quantity: { increment: qty } },
+//           });
+//         }
+//       }
+//       await tx.order.update({ where: { id: order.id }, data: { orderStatus: "ยกเลิก" } });
+//     });
 
-    res.json({ ok: true, message: "ยกเลิกแล้ว และคืนสต็อกเรียบร้อย" });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ message: e?.message || "Server Error" });
-  }
-};
+//     res.json({ ok: true, message: "ยกเลิกแล้ว และคืนสต็อกเรียบร้อย" });
+//   } catch (e) {
+//     console.error(e);
+//     res.status(500).json({ message: e?.message || "Server Error" });
+//   }
+// };
 
-// ลบออเดอร์ (ถ้ายังไม่ยกเลิก จะคืนสต็อกให้ก่อนแล้วค่อยลบ)
-exports.deleteOrderAdmin = async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!id) return res.status(400).json({ message: "missing id" });
-
-    const order = await prisma.order.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        orderStatus: true,
-        products: { select: { variantId: true, count: true } },
-      },
-    });
-    if (!order) return res.status(404).json({ message: "ไม่พบคำสั่งซื้อ" });
-
-    const COMPLETED_TH = "คำสั่งซื้อสำเร็จ";
-    const st = norm(order.orderStatus);
-
-    // คืนสต็อกเฉพาะกรณีที่ "ยังไม่สำเร็จ" และ "ไม่ได้ยกเลิก"
-    const shouldRestock = st !== norm(COMPLETED_TH) && st !== "ยกเลิก";
-
-    await prisma.$transaction(async (tx) => {
-      if (shouldRestock) {
-        for (const line of order.products) {
-          const qty = Number(line.count) || 0;
-          if (qty > 0 && Number.isInteger(line.variantId)) {
-            await tx.productVariant.updateMany({
-              where: { id: line.variantId },
-              data: { quantity: { increment: qty } },
-            });
-          }
-        }
-      }
-
-      await tx.order.delete({ where: { id: order.id } });
-    });
-
-    return res.json({
-      ok: true,
-      removedId: id,
-      restocked: shouldRestock,
-      message: shouldRestock
-        ? "ลบออเดอร์และคืนสต็อกแล้ว"
-        : "ลบออเดอร์แล้ว (ไม่คืนสต็อก เพราะคำสั่งซื้อสำเร็จ/ยกเลิกแล้ว)",
-    });
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ message: e?.message || "Server Error" });
-  }
-};
 /// ดึงสินค้า stock ต่ำ
 exports.lowStockNotifications = async (req, res) => {
   try {
@@ -506,3 +460,127 @@ exports.setPickupForOrders = async (req, res) => {
     res.status(500).json({ message: 'Server Error' })
   }
 }
+
+// PUT /api/admin/orders/:id/cancel
+exports.adminCancelOrder = async (req, res) => {
+  try {
+    const orderId = Number(req.params.id);
+    const { reason, note } = req.body ?? {};
+    const adminId = req.user?.id ?? null;
+
+    if (!orderId) return res.status(400).json({ message: "invalid order id" });
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ message: "กรุณาระบุสาเหตุการยกเลิก" });
+    }
+
+    const now = new Date();
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const before = await tx.order.findUnique({
+        where: { id: orderId },
+        select: { id: true, orderStatus: true },
+      });
+      if (!before) return null;
+
+      // คืนสต็อกเฉพาะรอบแรก
+      if (before.orderStatus !== "ยกเลิก") {
+        const full = await tx.order.findUnique({
+          where: { id: orderId },
+          include: {
+            products: { // ProductOnOrder[]
+              include: {
+                variant: { select: { id: true, productId: true } },
+              },
+            },
+          },
+        });
+
+        if (!full) return null;
+
+        for (const line of full.products) {
+          // คืนสต็อกตามจำนวนในออเดอร์
+          await tx.productVariant.update({
+            where: { id: line.variantId },
+            data: { quantity: { increment: line.count } },
+          });
+          // ลดยอด sold ของสินค้า
+          await tx.product.update({
+            where: { id: line.variant.productId },
+            data: { sold: { decrement: line.count } },
+          });
+        }
+      }
+
+      return tx.order.update({
+        where: { id: orderId },
+        data: {
+          orderStatus: "ยกเลิก",
+          cancelReason: reason.trim(),
+          cancelNote: note?.trim() || null,
+          canceledAt: now,
+          canceledById: adminId,
+        },
+        include: {
+          orderBuy: { select: { id: true, first_name: true, last_name: true, email: true } },
+          products: true,
+        },
+      });
+    });
+
+    if (!updated) return res.status(404).json({ message: "ไม่พบคำสั่งซื้อ" });
+    return res.json({ ok: true, order: updated });
+  } catch (err) {
+    console.error("[adminCancelOrder]", err);
+    return res.status(500).json({ message: "Server Error" });
+  }
+};
+
+exports.updateCancelInfo = async (req, res) => {
+  try {
+    const orderId = Number(req.params.id);
+    const { reason, note, clear } = req.body ?? {};
+    const adminId = req.user?.id ?? null;
+
+    if (!orderId) return res.status(400).json({ message: "invalid order id" });
+
+    const od = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, orderStatus: true, cancelReason: true, cancelNote: true },
+    });
+    if (!od) return res.status(404).json({ message: "ไม่พบคำสั่งซื้อ" });
+
+    if (od.orderStatus !== "ยกเลิก") {
+      return res.status(400).json({ message: "แก้ไขเหตุผลได้เฉพาะคำสั่งซื้อที่ถูกยกเลิกแล้วเท่านั้น" });
+    }
+
+    // โหมดล้างค่า
+    if (clear) {
+      const updated = await prisma.order.update({
+        where: { id: orderId },
+        data: { cancelReason: null, cancelNote: null, canceledById: adminId },
+        select: { id: true, cancelReason: true, cancelNote: true, canceledAt: true, canceledById: true },
+      });
+      return res.json({ ok: true, order: updated, message: "ล้างเหตุผล/หมายเหตุแล้ว" });
+    }
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ message: "กรุณาระบุเหตุผล (reason)" });
+    }
+
+    const updated = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        cancelReason: reason.trim(),
+        cancelNote: note?.trim() || null,
+        // ไม่แก้ orderStatus / ไม่คืนสต็อกเพิ่ม
+        canceledById: adminId,
+      },
+      select: { id: true, cancelReason: true, cancelNote: true, canceledAt: true, canceledById: true },
+    });
+
+    return res.json({ ok: true, order: updated });
+  } catch (err) {
+    console.error("[updateCancelInfo]", err);
+    return res.status(500).json({ message: "Server Error" });
+  }
+};

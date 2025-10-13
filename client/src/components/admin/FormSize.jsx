@@ -1,106 +1,9 @@
-// import React, { useEffect, useState } from 'react';
-// import { createSize, removeSize } from '../../api/Size';
-// import useEcomStore from '../../store/ecom-store';
-// import { toast } from 'react-toastify';
-
-// const FormSize = () => {
-//   const token = useEcomStore((s) => s.token);
-//   const sizes = useEcomStore((s) => s.sizes);
-//   const getSize = useEcomStore((s) => s.getSize);
-
-//   const [name, setName] = useState('');
-
-//   useEffect(() => {
-//     getSize(token);
-//   }, [getSize, token]);
-
-//   const handleSubmit = async (e) => {
-//     e.preventDefault();
-//     if (!name.trim()) {
-//       return toast.warning('ยังไม่ได้กรอกข้อมูล');
-//     }
-//     try {
-//       const res = await createSize(token, { name: name.trim() });
-//       toast.success(`เพิ่ม Size ${res.data.name} สำเร็จ`);
-//       setName('');
-//       getSize(token);
-//     } catch (err) {
-//       console.log(err);
-//       toast.error(err?.response?.data?.message || 'เกิดข้อผิดพลาด');
-//     }
-//   };
-
-//   const handleRemove = async (id) => {
-//     if (!window.confirm('ยืนยันการลบ Size นี้?')) return;
-//     try {
-//       const res = await removeSize(token, id);
-//       toast.success(`ลบ ${res.data.name} สำเร็จ`);
-//       getSize(token);
-//     } catch (err) {
-//       console.log(err);
-//       toast.error(err?.response?.data?.message || 'ลบไม่สำเร็จ');
-//     }
-//   };
-
-//   return (
-//     <div className="max-w-xl mx-auto p-6 bg-white shadow-lg rounded-lg">
-//       <h1 className="text-2xl font-bold text-gray-800 mb-4">จัดการ Size</h1>
-
-//       <form className="flex gap-4 mb-6" onSubmit={handleSubmit}>
-//         <input
-//           className="flex-1 px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
-//           value={name}
-//           onChange={(e) => setName(e.target.value)}
-//           type="text"
-//           placeholder="ชื่อ Size เช่น S, M, L, 42, 256GB"
-//         />
-//         <button
-//           type="submit"
-//           className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition"
-//         >
-//           เพิ่ม Size
-//         </button>
-//       </form>
-
-//       <hr className="mb-4" />
-
-//       <ul className="space-y-3">
-//         {sizes.map((item) => (
-//           <li
-//             key={item.id}
-//             className="flex justify-between items-center bg-gray-50 p-3 rounded-md shadow-sm hover:bg-gray-100 transition"
-//           >
-//             <span className="text-gray-800">{item.name}</span>
-//             <button
-//               className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition"
-//               onClick={() => handleRemove(item.id)}
-//             >
-//               ลบ
-//             </button>
-//           </li>
-//         ))}
-//         {sizes.length === 0 && (
-//           <li className="text-center text-gray-500 py-4">ยังไม่มีข้อมูล</li>
-//         )}
-//       </ul>
-//     </div>
-//   );
-// };
-
-// export default FormSize;
-
 import React, { useEffect, useMemo, useState } from "react";
-import { createSize, removeSize } from "../../api/Size";
+import { createSize, removeSize, updateSize } from "../../api/Size";
 import useEcomStore from "../../store/ecom-store";
-import { Ruler, Plus, Trash2, Search, AlertTriangle } from "lucide-react";
+import { Ruler, Plus, Trash2, Search, AlertTriangle, PencilLine, Save } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-/**
- * FormSize – polished UI/UX
- * - Matches the styling/UX of Category manager
- * - Uses a custom TOP toast (no react-toastify)
- * - Separate component/page, safe to drop-in for /admin/size
- */
 const FormSize = () => {
   const token = useEcomStore((s) => s.token);
   const sizes = useEcomStore((s) => s.sizes) || [];
@@ -109,9 +12,14 @@ const FormSize = () => {
   const [name, setName] = useState("");
   const [query, setQuery] = useState("");
   const [confirmId, setConfirmId] = useState(null);
+
+  // ✅ state สำหรับแก้ไข
+  const [editId, setEditId] = useState(null);
+  const [editName, setEditName] = useState("");
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [topToast, setTopToast] = useState(null); // { message, type: 'success'|'error'|'info' }
+  const [topToast, setTopToast] = useState(null); // { message, type }
 
   useEffect(() => {
     let mounted = true;
@@ -125,7 +33,7 @@ const FormSize = () => {
         if (mounted) setIsLoading(false);
       }
     })();
-    return () => { mounted = false; };
+    return () => { mounted = false; if (showTopToast.timer) clearTimeout(showTopToast.timer); };
   }, [getSize, token]);
 
   const filtered = useMemo(() => {
@@ -134,7 +42,7 @@ const FormSize = () => {
     return sizes.filter((s) => s.name?.toLowerCase().includes(q));
   }, [sizes, query]);
 
-  // Custom TOP toast (small black bar)
+  // TOP toast
   const showTopToast = (message, type = "success", duration = 1500) => {
     setTopToast({ message, type });
     if (showTopToast.timer) clearTimeout(showTopToast.timer);
@@ -145,7 +53,6 @@ const FormSize = () => {
     e.preventDefault();
     setError(null);
     if (!name.trim()) return showTopToast("ยังไม่ได้กรอกข้อมูล", "error");
-
     try {
       setIsLoading(true);
       const res = await createSize(token, { name: name.trim() });
@@ -179,6 +86,35 @@ const FormSize = () => {
     }
   };
 
+  // ✅ เริ่มแก้ไข
+  const startEdit = (item) => {
+    setEditId(item.id);
+    setEditName(item.name || "");
+  };
+
+  // ✅ บันทึกการแก้ไข
+  const handleUpdate = async () => {
+    if (!editName.trim()) return showTopToast("ยังไม่ได้กรอกข้อมูล", "error");
+    setError(null);
+    try {
+      setIsLoading(true);
+      await updateSize(token, editId, { name: editName.trim() });
+      showTopToast("บันทึกการแก้ไขสำเร็จ", "success");
+      setEditId(null);
+      setEditName("");
+      await getSize(token);
+    } catch (err) {
+      console.error(err);
+      const status = err?.response?.status;
+      const msg = err?.response?.data?.message || "บันทึกไม่สำเร็จ";
+      setError(msg);
+      // ถ้า server ส่ง 409 (unique) → แจ้งชื่อนี้ถูกใช้แล้ว
+      showTopToast(status === 409 ? (msg || "ชื่อนี้ถูกใช้แล้ว") : msg, "error", 1800);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const countText = `${filtered.length} ขนาด`;
 
   return (
@@ -193,7 +129,7 @@ const FormSize = () => {
             </div>
             <div>
               <h1 className="text-xl font-semibold text-gray-900">จัดการขนาดสินค้า</h1>
-              <p className="text-sm text-gray-500">เพิ่ม / ค้นหา / ลบขนาดสินค้า</p>
+              <p className="text-sm text-gray-500">เพิ่ม / ค้นหา / ลบ / แก้ไข ขนาดสินค้า</p>
             </div>
           </div>
           <span className="text-sm px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">{countText}</span>
@@ -278,6 +214,16 @@ const FormSize = () => {
                       <span className="truncate text-gray-800">{item.name}</span>
                     </div>
                     <div className="flex items-center gap-2">
+                      {/* ✅ ปุ่มแก้ไข */}
+                      <button
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-amber-700 border border-amber-200 bg-white hover:bg-amber-50 hover:border-amber-300 transition"
+                        onClick={() => startEdit(item)}
+                        aria-label={`แก้ไข ${item.name}`}
+                      >
+                        <PencilLine className="w-4 h-4" />
+                        แก้ไข
+                      </button>
+
                       <button
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-red-600 border border-red-200 bg-white hover:bg-red-50 hover:border-red-300 transition"
                         onClick={() => setConfirmId(item.id)}
@@ -341,17 +287,72 @@ const FormSize = () => {
         )}
       </AnimatePresence>
 
-      {/* Top Toast – small black bar */}
+      {/* ✅ Edit Dialog */}
+      <AnimatePresence>
+        {editId !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.98, opacity: 0 }}
+              className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-gray-100"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setEditId(null);
+                if (e.key === "Enter") handleUpdate();
+              }}
+            >
+              <div className="p-6">
+                <h2 className="text-lg font-semibold text-gray-900">แก้ไขขนาดสินค้า</h2>
+                <p className="text-gray-500 text-sm mt-1">ปรับชื่อขนาดแล้วกดบันทึก</p>
+
+                <label className="sr-only" htmlFor="edit-size-name">ชื่อขนาดสินค้า</label>
+                <input
+                  id="edit-size-name"
+                  className="mt-4 w-full px-4 py-2.5 rounded-xl border border-gray-200 shadow-sm focus:outline-none focus:ring-4 focus:ring-violet-100 focus:border-violet-300"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  autoFocus
+                />
+                <p className="text-xs py-2 text-gray-600">
+                  หลีกเลี่ยงชื่อซ้ำกับรายการอื่น (ระบบจะเตือนหากซ้ำ)
+                </p>
+              </div>
+              <div className="px-6 pb-6 flex items-center justify-end gap-3">
+                <button
+                  className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition"
+                  onClick={() => { setEditId(null); setEditName(""); }}
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 text-white hover:bg-violet-700 transition disabled:opacity-60"
+                  disabled={!editName.trim() || isLoading}
+                  onClick={handleUpdate}
+                >
+                  <Save className="w-4 h-4" />
+                  บันทึก
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Top Toast */}
       <AnimatePresence>
         {topToast && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className={
-              `fixed top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl shadow-lg text-white text-sm font-medium ` +
-              `bg-black/90`
-            }
+            className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl shadow-lg text-white text-sm font-medium bg-black/90"
           >
             {topToast.message}
           </motion.div>
@@ -362,5 +363,3 @@ const FormSize = () => {
 };
 
 export default FormSize;
-
-

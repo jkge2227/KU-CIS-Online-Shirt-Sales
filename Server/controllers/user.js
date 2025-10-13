@@ -1,5 +1,4 @@
 const prisma = require("../config/prisma")
-const router = require("../routes/user")
 const { create } = require("./product")
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
@@ -296,76 +295,6 @@ exports.saveOrder = async (req, res) => {
   }
 };
 
-// exports.getOrder = async (req, res) => {
-//   try {
-//     const userId = Number(req.user.id);
-//     const READY_STATUS_TH = "รับออเดอร์เสร็จสิ้น";
-//     const DAY_MS = 24 * 60 * 60 * 1000; // 1 วัน = 24 ชั่วโมง
-
-//     const orders = await prisma.order.findMany({
-//       where: { orderById: userId },
-//       orderBy: { createdAt: 'desc' },
-//       select: {
-//         id: true,
-//         cartTotal: true,
-//         orderStatus: true,
-//         createdAt: true,
-//         updatedAt: true,
-//         products: {
-//           select: {
-//             id: true,
-//             count: true,
-//             price: true,
-//             variantId: true,
-//             productTitle: true,
-//             sizeName: true,
-//             generationName: true,
-//             variant: {
-//               select: {
-//                 id: true,
-//                 product: { select: { images: { select: { url: true }, take: 1 } } },
-//                 size: { select: { name: true } },
-//                 generation: { select: { name: true } },
-//               }
-//             }
-//           }
-//         }
-//       }
-//     });
-
-//     const shaped = orders.map(o => {
-//       const expireAt =
-//         o.orderStatus === READY_STATUS_TH
-//           ? new Date(o.updatedAt.getTime() + 3 * DAY_MS) // ✅ 3 วันหลังจาก updatedAt
-//           : null;
-
-//       return {
-//         id: o.id,
-//         cartTotal: o.cartTotal,
-//         orderStatus: o.orderStatus,
-//         createdAt: o.createdAt,
-//         expireAt,
-//         products: o.products.map(line => ({
-//           id: line.id,
-//           count: line.count,
-//           price: line.price,
-//           variantId: line.variantId,
-//           productTitle: line.productTitle ?? line.variant?.productTitle ?? "-",
-//           sizeName: line.sizeName ?? line.variant?.size?.name ?? "-",
-//           generationName: line.generationName ?? line.variant?.generation?.name ?? "-",
-//           imageUrl: line.variant?.product?.images?.[0]?.url ?? null,
-//           variant: line.variant,
-//         }))
-//       };
-//     });
-
-//     return res.json({ ok: true, order: shaped });
-//   } catch (err) {
-//     console.error(err);
-//     return res.status(500).json({ message: "Server Error" });
-//   }
-// };
-
 exports.getOrder = async (req, res) => {
   try {
     const userId = Number(req.user.id);
@@ -376,7 +305,7 @@ exports.getOrder = async (req, res) => {
     const orders = await prisma.order.findMany({
       where: {
         orderById: userId,
-        orderStatus: { notIn: ["คำสั่งซื้อสำเร็จ", "completed", "Completed"] },
+        orderStatus: { notIn: ["คำสั่งซื้อสำเร็จ", "completed", "Completed", "cancelled", "ยกเลิก"] },
       },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -581,25 +510,101 @@ exports.cancelAndDeleteMyOrder = async (req, res) => {
   }
 };
 
+// exports.getOrderHistory = async (req, res) => {
+//   try {
+//     const userId = Number(req.user.id);
+
+//     // รองรับหลายรูปแบบตัวสะกด/ภาษา
+//     const COMPLETED = ["คำสั่งซื้อสำเร็จ", "completed", "Completed"];
+
+//     const orders = await prisma.order.findMany({
+//       where: {
+//         orderById: userId,
+//         orderStatus: { in: COMPLETED },
+//       },
+//       orderBy: { updatedAt: "desc" }, // ใช้เวลาสำเร็จล่าสุด
+//       select: {
+//         id: true,
+//         cartTotal: true,
+//         orderStatus: true,
+//         createdAt: true,
+//         updatedAt: true, // ใช้เป็น completedAt
+//         products: {
+//           select: {
+//             id: true,
+//             count: true,
+//             price: true,
+//             variantId: true,
+//             productTitle: true,
+//             sizeName: true,
+//             generationName: true,
+//             variant: {
+//               select: {
+//                 id: true,
+//                 product: { select: { images: { select: { url: true }, take: 1 } } },
+//                 size: { select: { name: true } },
+//                 generation: { select: { name: true } },
+//               },
+//             },
+//           },
+//           orderBy: { id: "asc" },
+//         },
+//       },
+//     });
+
+//     const shaped = orders.map((o) => ({
+//       id: o.id,
+//       cartTotal: o.cartTotal,
+//       orderStatus: o.orderStatus,
+//       createdAt: o.createdAt,
+//       completedAt: o.updatedAt, // เวลาเสร็จสมบูรณ์
+//       products: o.products.map((line) => ({
+//         id: line.id,
+//         count: line.count,
+//         price: line.price,
+//         variantId: line.variantId,
+//         productTitle: line.productTitle ?? "-",
+//         sizeName: line.sizeName ?? line.variant?.size?.name ?? "-",
+//         generationName: line.generationName ?? line.variant?.generation?.name ?? "-",
+//         imageUrl: line.variant?.product?.images?.[0]?.url ?? null,
+//         variant: line.variant,
+//       })),
+//     }));
+
+//     return res.json({ ok: true, order: shaped });
+//   } catch (err) {
+//     console.error(err);
+//     return res.status(500).json({ message: "Server Error" });
+//   }
+// };
+
+// GET /api/me
+
 exports.getOrderHistory = async (req, res) => {
   try {
     const userId = Number(req.user.id);
 
     // รองรับหลายรูปแบบตัวสะกด/ภาษา
-    const COMPLETED = ["คำสั่งซื้อสำเร็จ", "completed", "Completed"];
+    const COMPLETED = ["คำสั่งซื้อสำเร็จ", "รับออเดอร์เสร็จสิ้น", "completed", "Completed"];
+    const CANCELED = ["ยกเลิก", "ยกเลิกคำสั่งซื้อ", "canceled", "cancelled", "Canceled", "Cancelled"];
 
     const orders = await prisma.order.findMany({
       where: {
         orderById: userId,
-        orderStatus: { in: COMPLETED },
+        orderStatus: { in: [...COMPLETED, ...CANCELED] },
       },
-      orderBy: { updatedAt: "desc" }, // ใช้เวลาสำเร็จล่าสุด
+      orderBy: { updatedAt: "desc" },
       select: {
         id: true,
         cartTotal: true,
         orderStatus: true,
         createdAt: true,
-        updatedAt: true, // ใช้เป็น completedAt
+        updatedAt: true,       // fallback สำหรับ completedAt / canceledAt ถ้าไม่มีฟิลด์เฉพาะ
+        // ★ เพิ่ม 3 ฟิลด์นี้เพื่อให้ client แสดงได้
+        cancelReason: true,
+        cancelNote: true,
+        canceledAt: true,
+
         products: {
           select: {
             id: true,
@@ -623,24 +628,39 @@ exports.getOrderHistory = async (req, res) => {
       },
     });
 
-    const shaped = orders.map((o) => ({
-      id: o.id,
-      cartTotal: o.cartTotal,
-      orderStatus: o.orderStatus,
-      createdAt: o.createdAt,
-      completedAt: o.updatedAt, // เวลาเสร็จสมบูรณ์
-      products: o.products.map((line) => ({
-        id: line.id,
-        count: line.count,
-        price: line.price,
-        variantId: line.variantId,
-        productTitle: line.productTitle ?? "-",
-        sizeName: line.sizeName ?? line.variant?.size?.name ?? "-",
-        generationName: line.generationName ?? line.variant?.generation?.name ?? "-",
-        imageUrl: line.variant?.product?.images?.[0]?.url ?? null,
-        variant: line.variant,
-      })),
-    }));
+    const isCompleted = (s = "") => COMPLETED.includes(String(s).trim());
+    const isCanceled = (s = "") => CANCELED.includes(String(s).trim());
+
+    const shaped = orders.map((o) => {
+      // ถ้ามีฟิลด์ canceledAt ในสคีมา ให้ใช้ก่อน; ไม่งั้น fallback เป็น updatedAt
+      const completedAt = isCompleted(o.orderStatus) ? o.updatedAt : null;
+      const canceledAt = isCanceled(o.orderStatus) ? (o.canceledAt ?? o.updatedAt) : null;
+
+      return {
+        id: o.id,
+        cartTotal: o.cartTotal,
+        orderStatus: o.orderStatus,
+        createdAt: o.createdAt,
+        completedAt,
+        canceledAt,
+
+        // ★ ส่งเหตุผล/หมายเหตุไปให้หน้า OrderHistory ใช้เปิดโมดัล "ดูเหตุผล"
+        cancelReason: o.cancelReason ?? null,
+        cancelNote: o.cancelNote ?? null,
+
+        products: o.products.map((line) => ({
+          id: line.id,
+          count: line.count,
+          price: line.price,
+          variantId: line.variantId,
+          productTitle: line.productTitle ?? "-",
+          sizeName: line.sizeName ?? line.variant?.size?.name ?? "-",
+          generationName: line.generationName ?? line.variant?.generation?.name ?? "-",
+          imageUrl: line.variant?.product?.images?.[0]?.url ?? null,
+          variant: line.variant,
+        })),
+      };
+    });
 
     return res.json({ ok: true, order: shaped });
   } catch (err) {
@@ -649,7 +669,7 @@ exports.getOrderHistory = async (req, res) => {
   }
 };
 
-// GET /api/me
+
 exports.profile = async (req, res) => {
   try {
     const userId = Number(req.user.id);

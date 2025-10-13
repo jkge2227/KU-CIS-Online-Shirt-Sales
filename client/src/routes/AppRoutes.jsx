@@ -27,6 +27,7 @@ import History from '../pages/history'
 import AdminSalesDashboard from '../components/admin/AdminSalesDashboard'
 import ForgotPasswordOTP from '../pages/auth/ForgotPasswordOTP'
 import ForgotPassword from '../pages/auth/ForgotPassword'
+import AdminUsers from '../components/admin/AdminUsers'
 
 const router = createBrowserRouter([
     {
@@ -59,7 +60,8 @@ const router = createBrowserRouter([
             { path: 'size', element: <FormSize /> },
             { path: 'generation', element: <FormGeneration /> },
             { path: 'statusorder', element: <StatusOrder /> },
-            { path: 'dashboard', element: <AdminSalesDashboard /> }
+            { path: 'dashboard', element: <AdminSalesDashboard /> },
+            { path: 'adminusers', element: <AdminUsers /> },
         ]
     },
     {

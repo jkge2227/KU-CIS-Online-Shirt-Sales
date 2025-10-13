@@ -9,6 +9,11 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+const PRODUCT_INCLUDE = {
+  images: true,
+  variants: { include: { size: true, generation: true } },
+};
+
 // ---------- CREATE ----------
 exports.create = async (req, res) => {
   try {
@@ -110,76 +115,6 @@ exports.read = async (req, res) => {
   }
 };
 
-// ---------- UPDATE ----------
-// exports.update = async (req, res) => {
-//   try {
-//     const { title, description, price, quantity, categoryId, images = [], variants } = req.body;
-//     const productId = Number(req.params.id);
-
-//     const updated = await prisma.$transaction(async (tx) => {
-//       // ลบรูปเดิมทั้งหมดก่อน (หากต้องการ diff ให้ปรับลอจิก)
-//       await tx.image.deleteMany({ where: { productId } });
-
-//       // อัปเดต product หลัก + ใส่รูปใหม่
-//       const prod = await tx.product.update({
-//         where: { id: productId },
-//         data: {
-//           title: String(title).trim(),
-//           description: String(description).trim(),
-//           price: Number(price),
-//           quantity: quantity != null && quantity !== "" ? Number(quantity) : 0,
-//           categoryId: categoryId ? Number(categoryId) : null,
-//           images: {
-//             create: images.map((item) => ({
-//               asset_id: item.asset_id || "",
-//               public_id: item.public_id || "",
-//               url: item.url,
-//               secure_url: item.secure_url || item.url,
-//             })),
-//           },
-//         },
-//       });
-
-//       // ถ้ามีส่ง variants มา → ลบทิ้งแล้วสร้างใหม่ (วิธีตรงไปตรงมา)
-//       if (Array.isArray(variants)) {
-//         await tx.productVariant.deleteMany({ where: { productId } });
-
-//         if (variants.length) {
-//           // กัน key ซ้ำอีกชั้น
-//           const seen = new Set();
-//           for (const v of variants) {
-//             if (!v.sizeId) throw new Error("sizeId is required in variants");
-//             const key = `${Number(v.sizeId)}::${v.generationId == null ? "null" : Number(v.generationId)}`;
-//             if (seen.has(key)) throw new Error("Duplicate variant (size/generation) found");
-//             seen.add(key);
-//           }
-
-//           await tx.productVariant.createMany({
-//             data: variants.map((v) => ({
-//               productId,
-//               sizeId: Number(v.sizeId),
-//               generationId: v.generationId == null || v.generationId === "" ? null : Number(v.generationId),
-//               quantity: Number(v.quantity || 0),
-//               sku: v.sku || null,
-//             })),
-//             skipDuplicates: true,
-//           });
-//         }
-//       }
-
-//       return prod;
-//     });
-
-//     res.send(updated);
-//   } catch (err) {
-//     console.log(err);
-//     const msg = err?.message?.includes("Duplicate variant")
-//       ? err.message
-//       : "Server Error";
-//     res.status(500).json({ message: msg });
-//   }
-// };
-// controllers/product.js
 exports.update = async (req, res) => {
   try {
     const productId = Number(req.params.id);
@@ -349,40 +284,6 @@ exports.update = async (req, res) => {
   }
 };
 
-// ---------- REMOVE ----------
-// exports.remove = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     const productId = Number(id);
-
-//     const product = await prisma.product.findFirst({
-//       where: { id: productId },
-//       include: { images: true },
-//     });
-//     if (!product) return res.status(400).json({ message: "product not found" });
-
-//     // ลบรูปบน Cloudinary (ถ้ามี public_id)
-//     const deleteImage = product.images.map(
-//       (image) =>
-//         new Promise((resolve, reject) => {
-//           if (!image.public_id) return resolve("no_public_id");
-//           cloudinary.uploader.destroy(image.public_id, (error, result) => {
-//             if (error) reject(error);
-//             else resolve(result);
-//           });
-//         })
-//     );
-//     await Promise.all(deleteImage);
-
-//     await prisma.product.delete({ where: { id: productId } });
-//     // onDelete: Cascade จะลบ variants/images ให้เองตาม schema
-//     res.send("remove OK");
-//   } catch (err) {
-//     console.log(err);
-//     res.status(500).json({ message: "Server Error" });
-//   }
-// };
-// controllers/product.js
 exports.remove = async (req, res) => {
   try {
     const productId = Number(req.params.id);
@@ -498,20 +399,30 @@ const handleCategory = async (req, res, categoryId) => {
 
 exports.searchfilters = async (req, res) => {
   try {
-    const { query, category, price } = req.body;
+    // รองรับทั้งเลขเดี่ยวและอาร์เรย์
+    let { category } = req.body;
+    if (category == null) return res.json([]); // ไม่ส่งมาก็ว่าง
 
-    if (query) return await handleQuery(req, res, query);
-    if (category) return await handleCategory(req, res, category);
-    if (price) return await handlePrice(req, res, price);
+    const ids = (Array.isArray(category) ? category : [category])
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n));
 
-    res.send([]); // ถ้าไม่ส่งเงื่อนไขมาเลย
+    if (ids.length === 0) return res.json([]);
+
+    const products = await prisma.product.findMany({
+      where: { categoryId: { in: ids } },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      include: PRODUCT_INCLUDE,
+    });
+
+    res.json(products);
   } catch (err) {
-    console.log(err);
+    console.error(err);
     res.status(500).json({ message: "Server Error" });
   }
 };
 
-// ---------- UPLOAD IMAGE (เดิม) ----------
 exports.createImages = async (req, res) => {
   try {
     const result = await cloudinary.uploader.upload(req.body.image, {

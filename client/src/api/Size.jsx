@@ -1,14 +1,18 @@
 import axios from "axios";
 
-export const createSize = async (token, form) =>
-  axios.post("http://localhost:5001/api/size", form, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+const API_BASE = import.meta.env?.VITE_API_URL ?? "http://localhost:5001/api";
+const api = axios.create({ baseURL: API_BASE });
+const auth = (t) => ({ headers: { Authorization: `Bearer ${t}` } });
 
-export const listSize = async () =>
-  axios.get("http://localhost:5001/api/size");
+export const createSize = (token, form) =>
+  api.post("/size", form, auth(token));
 
-export const removeSize = async (token, id) =>
-  axios.delete(`http://localhost:5001/api/size/${id}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export const listSize = () =>
+  api.get("/size");
+
+export const removeSize = (token, id) =>
+  api.delete(`/size/${id}`, auth(token));
+
+// ✅ เพิ่มฟังก์ชันแก้ไข
+export const updateSize = (token, id, form) =>
+  api.put(`/size/${id}`, form, auth(token));

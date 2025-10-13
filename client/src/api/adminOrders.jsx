@@ -17,11 +17,6 @@ export const adminListOrders = async (
 export const adminUpdateOrderStatus = async (token, id, status) =>
     api.put(`/admin/orders/${id}/status`, { status }, auth(token));
 
-export const adminCancelOrder = async (token, id) =>
-    api.put(`/admin/orders/${id}/cancel`, {}, auth(token));
-
-export const adminDeleteOrder = async (token, id) =>
-    api.delete(`/admin/orders/${id}`, auth(token));
 
 // แนบ token แบบเดียวกันทุกฟังก์ชัน
 const authHeaders = (token) => ({
@@ -87,6 +82,11 @@ export const adminBulkSetPickup = async (token, payload) => {
 };
 
 export const adminUpdatePickup = async (token, id, payload) => {
-  // payload: { place, pickupAt, note } หรือ { clear: true }
-  return api.patch(`/admin/orders/${id}/pickup`, payload, authHeaders(token));
+    // payload: { place, pickupAt, note } หรือ { clear: true }
+    return api.patch(`/admin/orders/${id}/pickup`, payload, authHeaders(token));
 };
+export const adminCancelOrder = (token, id, payload = {}) =>
+    api.put(`/admin/orders/${id}/cancel`, payload, auth(token));
+
+export const adminUpdateCancelInfo = (token, id, payload = {}) =>
+    api.patch(`/admin/orders/${id}/cancel`, payload, auth(token));

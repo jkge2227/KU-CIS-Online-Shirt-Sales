@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import useEcomStore from "../../store/ecom-store";
 import { listUserOrderHistory } from "../../api/users";
 import { toast } from "react-toastify";
-import { CheckCircle2, Star } from "lucide-react";
+import { CheckCircle2, Star, XCircle, Clock, Eye } from "lucide-react";
 import { createOrderReviews, getMyOrderReviews } from "../../api/review";
 
 // ---------- Helpers ----------
@@ -13,12 +13,45 @@ const fmtDateTime = (d) =>
   d ? new Date(d).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
 const makeKey = (orderId, variantId) => `${orderId}::${variantId}`;
 
+// แยกสถานะ
+const isOrderCompleted = (status = "") =>
+  ["คำสั่งซื้อสำเร็จ", "รับออเดอร์เสร็จสิ้น"].includes(String(status).trim());
+
+const isOrderCanceled = (status = "") =>
+  ["ยกเลิก", "ยกเลิกคำสั่งซื้อ"].includes(String(status).trim());
+
+const getStatusMeta = (status = "") => {
+  const s = String(status).trim();
+  if (isOrderCompleted(s)) {
+    return {
+      text: "คำสั่งซื้อสำเร็จ",
+      cls: "bg-green-50 text-green-700 ring-green-200",
+      Icon: CheckCircle2,
+    };
+  }
+  if (isOrderCanceled(s)) {
+    return {
+      text: "คำสั่งซื้อถูกยกเลิก",
+      cls: "bg-red-50 text-red-700 ring-red-200",
+      Icon: XCircle,
+    };
+  }
+  return {
+    text: s || "กำลังดำเนินการ",
+    cls: "bg-amber-50 text-amber-800 ring-amber-200",
+    Icon: Clock,
+  };
+};
+
 // ---------- UI bits ----------
-const StatusPill = () => (
-  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ring-1 bg-green-50 text-green-700 ring-green-200">
-    <CheckCircle2 size={14} /> คำสั่งซื้อสำเร็จ
-  </span>
-);
+const StatusPill = ({ status }) => {
+  const { text, cls, Icon } = getStatusMeta(status);
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ring-1 ${cls}`}>
+      <Icon size={14} /> {text}
+    </span>
+  );
+};
 
 const RATING_LABEL = [null, "ปรับปรุง", "พอใช้", "ปานกลาง", "ดี", "ดีมาก"];
 const StarRating = ({ value = 0, onChange }) => {
@@ -49,7 +82,7 @@ const ReadOnlyStars = ({ rating = 0, size = 14, showLabel = false }) => (
     {[1, 2, 3, 4, 5].map((n) => (
       <Star key={n} size={size} className={n <= rating ? "fill-yellow-300 stroke-yellow-300" : "stroke-gray-300"} />
     ))}
-    {showLabel && (<span className="text-[11px] text-yellow-400 ml-1">{RATING_LABEL[rating] || ""}</span>)}
+    {showLabel && <span className="text-[11px] text-yellow-400 ml-1">{RATING_LABEL[rating] || ""}</span>}
   </div>
 );
 
@@ -62,7 +95,8 @@ const ReviewModal = ({ open, rating, text, lineInfo, isEditing, onChange, onClos
         <div className="p-5 border-b">
           <div className="text-lg font-semibold tracking-tight">{isEditing ? "แก้ไขรีวิวสินค้า" : "ให้คะแนนสินค้า"}</div>
           <div className="text-sm text-gray-500 mt-1">
-            {lineInfo?.title || "-"} {lineInfo?.sizeName ? `• ไซซ์ ${lineInfo.sizeName}` : ""} {lineInfo?.generationName ? `• รุ่น ${lineInfo.generationName}` : ""}
+            {lineInfo?.title || "-"} {lineInfo?.sizeName ? `• ไซซ์ ${lineInfo.sizeName}` : ""}{" "}
+            {lineInfo?.generationName ? `• รุ่น ${lineInfo.generationName}` : ""}
           </div>
         </div>
         <div className="p-5 space-y-4">
@@ -80,11 +114,14 @@ const ReviewModal = ({ open, rating, text, lineInfo, isEditing, onChange, onClos
           </div>
         </div>
         <div className="p-5 flex items-center justify-end gap-2 border-t">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-white bg-red-400 hover:bg-red-500">ยกเลิก</button>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-white bg-red-400 hover:bg-red-500">
+            ยกเลิก
+          </button>
           <button
             onClick={onSubmit}
             disabled={!rating}
-            className={`px-4 py-2 rounded-lg text-white ${!rating ? "bg-blue-300 cursor-not-allowed" : "bg-gray-700 hover:bg-gray-800"}`}
+            className={`px-4 py-2 rounded-lg text-white ${!rating ? "bg-blue-300 cursor-not-allowed" : "bg-gray-700 hover:bg-gray-800"
+              }`}
           >
             {isEditing ? "อัปเดตรีวิว" : "ส่งรีวิว"}
           </button>
@@ -109,6 +146,9 @@ const OrderHistory = () => {
     variantId: null,
     lineInfo: null, // { title, sizeName, generationName }
   });
+
+  // ★ โมดัล “เหตุผลการยกเลิก”
+  const [viewCancel, setViewCancel] = useState({ open: false, order: null });
 
   // Draft รีวิวต่อชิ้น (เก็บ localStorage)
   const [reviewDrafts, setReviewDrafts] = useState(() => {
@@ -216,13 +256,13 @@ const OrderHistory = () => {
         return next;
       });
 
-      toast.success("ส่งรีวิวสินค้าแล้ว ขอบคุณมากครับ 🙏");
+      toast.success("ส่งรีวิวสินค้าแล้ว ขอบคุณมากครับ 🙏", { position: "top-center" });
       clearDraft(orderId, variantId);
       setReviewModal({ open: false, orderId: null, variantId: null, lineInfo: null });
     } catch (e) {
       console.error(e);
       const msg = e?.response?.data?.message ?? "ส่งรีวิวไม่สำเร็จ";
-      toast.error(msg);
+      toast.error(msg, { position: "top-center" });
     }
   };
 
@@ -239,7 +279,7 @@ const OrderHistory = () => {
         setOrders(Array.isArray(list) ? list : []);
       } catch (e) {
         console.error(e);
-        toast.error("โหลดประวัติคำสั่งซื้อไม่สำเร็จ");
+        toast.error("โหลดประวัติคำสั่งซื้อไม่สำเร็จ", { position: "top-center" });
       } finally {
         setLoading(false);
       }
@@ -269,15 +309,13 @@ const OrderHistory = () => {
         persistSubmitted(collected);
       } catch (e) {
         console.error("syncSubmitted error:", e);
-        // เงียบไว้ได้
       }
     };
     syncSubmitted();
   }, [orders, token, users]);
 
-  const grandTotal = useMemo(() => orders.reduce((sum, od) => sum + toNum(od.cartTotal), 0), [orders]);
-  const totalItems = useMemo(
-    () => orders.reduce((sum, od) => sum + (od.products?.reduce?.((sub, l) => sub + toNum(l.count), 0) || 0), 0),
+  const grandTotal = useMemo(
+    () => orders.reduce((sum, od) => sum + toNum(od.cartTotal), 0),
     [orders]
   );
 
@@ -306,7 +344,9 @@ const OrderHistory = () => {
       )}
 
       {orders.length === 0 ? (
-        <div className="bg-white p-10 rounded-2xl border shadow-sm text-center text-gray-500">ยังไม่มีประวัติการสั่งซื้อ</div>
+        <div className="bg-white p-10 rounded-2xl border shadow-sm text-center text-gray-500">
+          ยังไม่มีประวัติการสั่งซื้อ
+        </div>
       ) : (
         <div className="space-y-6">
           {orders.map((od) => (
@@ -315,14 +355,53 @@ const OrderHistory = () => {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 border-b">
                 <div className="flex flex-wrap items-center gap-3 text-sm text-black">
                   <div>
-                    เลขที่ออเดอร์: <span className="font-semibold text-black">#{String(od.id).padStart(5, "0")}</span>
+                    เลขที่ออเดอร์:{" "}
+                    <span className="font-semibold text-black">#{String(od.id).padStart(5, "0")}</span>
                   </div>
                   <span className="text-gray-300">•</span>
-                  <div>สั่งเมื่อ: <span className="font-medium text-black">{fmtDateTime(od.createdAt)}</span></div>
-                  <span className="text-gray-300">•</span>
-                  <div>สำเร็จเมื่อ: <span className="font-medium text-black">{fmtDateTime(od.completedAt)}</span></div>
+                  <div>
+                    สั่งเมื่อ: <span className="font-medium text-black">{fmtDateTime(od.createdAt)}</span>
+                  </div>
+
+                  {isOrderCompleted(od.orderStatus) && (
+                    <>
+                      <span className="text-gray-300">•</span>
+                      <div>
+                        สำเร็จเมื่อ:{" "}
+                        <span className="font-medium text-black">{fmtDateTime(od.completedAt)}</span>
+                      </div>
+                    </>
+                  )}
+
+                  {isOrderCanceled(od.orderStatus) && (
+                    <>
+                      <span className="text-gray-300">•</span>
+                      <div>
+                        ยกเลิกเมื่อ:{" "}
+                        <span className="font-medium text-black">
+                          {fmtDateTime(od.canceledAt || od.updatedAt)}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
-                <StatusPill />
+
+                <div className="flex items-center gap-2">
+                  <StatusPill status={od.orderStatus} />
+
+                  {/* ★ ปุ่มดูเหตุผลการยกเลิก — แสดงเฉพาะเมื่อยกเลิก */}
+                  {isOrderCanceled(od.orderStatus) && (
+                    <button
+                      type="button"
+                      onClick={() => setViewCancel({ open: true, order: od })}
+                      className="inline-flex items-center gap-1 text-xs rounded-lg bg-red-50 text-red-800 ring-1 ring-red-200 px-3 py-1.5 hover:bg-red-100"
+                      title="ดูเหตุผลการยกเลิก"
+                    >
+                      <Eye size={14} className="shrink-0" />
+                      ดูเหตุผล
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Lines */}
@@ -336,31 +415,52 @@ const OrderHistory = () => {
                   const generationName = line.generationName || "-";
                   const imageUrl = line.imageUrl || null;
                   const vid = line.variantId || line.variant?.id;
+
+                  // ✅ ซ่อนรีวิวทั้งหมดถ้าออเดอร์ไม่ได้ "สำเร็จ"
+                  const showReviewControls =
+                    isOrderCompleted(od.orderStatus) && Number.isFinite(Number(vid));
+
                   const key = makeKey(od.id, vid);
                   const submitted = submittedReviews[key];
-                  const canReview = Number.isFinite(Number(vid));
 
                   return (
-                    <div key={line.id ?? `${od.id}-${vid}-${title}`} className="grid grid-cols-12 gap-4 bg-gray-50 rounded-xl p-3">
+                    <div
+                      key={line.id ?? `${od.id}-${vid}-${title}`}
+                      className="grid grid-cols-12 gap-4 bg-gray-50 rounded-xl p-3"
+                    >
                       <div className="col-span-12 sm:col-span-2">
                         <div className="w-full aspect-[4/3] overflow-hidden rounded-xl border bg-white">
                           {imageUrl ? (
                             <img src={imageUrl} alt={title} className="w-full h-full object-contain" />
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">no image</div>
+                            <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                              no image
+                            </div>
                           )}
                         </div>
                       </div>
+
                       <div className="col-span-12 sm:col-span-10 flex flex-wrap items-start justify-between gap-2">
                         <div className="space-y-1">
                           <div className="text-sm text-black">
-                            รหัสสินค้า : <span className="font-medium text-black">F{String(vid ?? 0).padStart(4, "0")}</span>
+                            รหัสสินค้า :{" "}
+                            <span className="font-medium text-black">
+                              F{String(vid ?? 0).padStart(4, "0")}
+                            </span>
                           </div>
                           <div className="text-base font-medium text-black tracking-tight">{title}</div>
-                          <div className="text-sm text-black">รุ่น : <b className="font-medium">{generationName}</b></div>
-                          <div className="text-sm text-black">ขนาด : <b className="font-medium">{sizeName}</b></div>
-                          <div className="text-sm text-black">ราคา : <b className="font-medium">{fmtMoney(price)} บาท</b></div>
-                          <div className="text-sm text-black">จำนวน : <b className="font-medium">{qty} ตัว</b></div>
+                          <div className="text-sm text-black">
+                            รุ่น : <b className="font-medium">{generationName}</b>
+                          </div>
+                          <div className="text-sm text-black">
+                            ขนาด : <b className="font-medium">{sizeName}</b>
+                          </div>
+                          <div className="text-sm text-black">
+                            ราคา : <b className="font-medium">{fmtMoney(price)} บาท</b>
+                          </div>
+                          <div className="text-sm text-black">
+                            จำนวน : <b className="font-medium">{qty} ตัว</b>
+                          </div>
                         </div>
 
                         <div className="flex flex-col items-end justify-between gap-2">
@@ -369,25 +469,25 @@ const OrderHistory = () => {
                             <div className="text-lg font-bold text-gray-900">{fmtMoney(lineTotal)} บาท</div>
                           </div>
 
-                          {/* ปุ่มรีวิวต่อ “สินค้า” */}
-                          {submitted ? (
-                            <button
-                              onClick={() => canReview && openEditLineReview(od.id, line)}
-                              disabled={!canReview}
-                              className="inline-flex items-center gap-2 rounded-lg bg-yellow-50 text-yellow-800 ring-1 ring-yellow-200 px-3 py-1 hover:bg-yellow-100 disabled:opacity-50"
-                              title="แตะเพื่อแก้ไขรีวิวสินค้าชิ้นนี้"
-                            >
-                              <ReadOnlyStars rating={submitted.rating} />
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => canReview && openLineReview(od.id, line)}
-                              disabled={!canReview}
-                              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200 hover:bg-yellow-100 disabled:opacity-50"
-                              title="รีวิวสินค้าชิ้นนี้"
-                            >
-                              <Star size={14} className="stroke-yellow-300" /> รีวิว/ดาว ชิ้นนี้
-                            </button>
+                          {/* ✅ ซ่อนทั้งหมดถ้าไม่ใช่สถานะ 'สำเร็จ' */}
+                          {showReviewControls && (
+                            submitted ? (
+                              <button
+                                onClick={() => openEditLineReview(od.id, line)}
+                                className="inline-flex items-center gap-2 rounded-lg bg-yellow-50 text-yellow-800 ring-1 ring-yellow-200 px-3 py-1 hover:bg-yellow-100"
+                                title="แตะเพื่อแก้ไขรีวิวสินค้าชิ้นนี้"
+                              >
+                                <ReadOnlyStars rating={submitted.rating} />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => openLineReview(od.id, line)}
+                                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200 hover:bg-yellow-100"
+                                title="รีวิวสินค้าชิ้นนี้"
+                              >
+                                <Star size={14} className="stroke-yellow-300" /> รีวิว/ดาว ชิ้นนี้
+                              </button>
+                            )
                           )}
                         </div>
                       </div>
@@ -412,7 +512,8 @@ const OrderHistory = () => {
             <span className="text-black font-semibold">
               {orders
                 .reduce((sum, od) => sum + (od.products?.reduce?.((s, l) => s + toNum(l.count), 0) || 0), 0)
-                .toLocaleString("th-TH")} {" "}ตัว
+                .toLocaleString("th-TH")}{" "}
+              ตัว
             </span>
           </div>
         </div>
@@ -429,6 +530,61 @@ const OrderHistory = () => {
         onClose={() => setReviewModal({ open: false, orderId: null, variantId: null, lineInfo: null })}
         onSubmit={submitReview}
       />
+
+      {/* ★ Modal: ดูเหตุผลการยกเลิก */}
+      {viewCancel.open && viewCancel.order && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+            <div className="p-5 border-b flex items-center justify-between">
+              <div className="font-semibold flex items-center gap-2 text-red-700">
+                <XCircle className="h-5 w-5" /> เหตุผลการยกเลิกคำสั่งซื้อ
+              </div>
+              <button
+                onClick={() => setViewCancel({ open: false, order: null })}
+                className="text-gray-500 hover:text-gray-700"
+                aria-label="ปิด"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-2 text-sm">
+              <div><b>เลขที่ออเดอร์:</b> #{String(viewCancel.order.id).padStart(5, "0")}</div>
+              <div><b>ยกเลิกเมื่อ:</b> {fmtDateTime(viewCancel.order.canceledAt || viewCancel.order.updatedAt)}</div>
+              <div className="pt-2"><b>เหตุผล:</b> {viewCancel.order.cancelReason || "-"}</div>
+              {!!(viewCancel.order.cancelNote ?? "").trim() && (
+                <div><b>หมายเหตุ:</b> {viewCancel.order.cancelNote}</div>
+              )}
+            </div>
+
+            <div className="p-5 border-t flex items-center justify-end gap-2">
+              <button
+                onClick={() => {
+                  const o = viewCancel.order;
+                  const text = [
+                    `เลขที่ออเดอร์: #${String(o.id).padStart(5, "0")}`,
+                    `ยกเลิกเมื่อ: ${fmtDateTime(o.canceledAt || o.updatedAt)}`,
+                    `เหตุผล: ${o.cancelReason || "-"}`,
+                    `หมายเหตุ: ${o.cancelNote || "-"}`,
+                  ].join("\n");
+                  navigator.clipboard.writeText(text);
+                  toast.info("คัดลอกเหตุผลการยกเลิกแล้ว", { position: "top-center" });
+                }}
+                className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700"
+                title="คัดลอกรายละเอียด"
+              >
+                คัดลอก
+              </button>
+              <button
+                onClick={() => setViewCancel({ open: false, order: null })}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white"
+              >
+                ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

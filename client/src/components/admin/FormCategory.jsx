@@ -1,92 +1,8 @@
-// import React, { useState, useEffect } from 'react'
-// import { createCategory, listCategory, removeCategory } from '../../api/Category'
-// import useEcomStore from '../../store/ecom-store'
-// import { toast } from 'react-toastify';
-// const FormCategory = () => {
-//     const token = useEcomStore((state) => state.token)
-//     const [name, setName] = useState('')
-//     //const [categories, setCategories] = useState([])
-//     const categories = useEcomStore((state) => state.categories)
-//     const getCategory = useEcomStore((state) => state.getCategory)
-
-//     useEffect(() => {
-//         getCategory(token)
-//     }, [])
-
-//     const handleSubmit = async (e) => {
-//         e.preventDefault()
-//         if (!name) {
-//             return toast.warning('ยังไม่ได้กรองข้อมูล')
-//         }
-//         try {
-//             const res = await createCategory(token, { name })
-//             console.log(res.data.name)
-//             toast.success(`เพิ่มประเภทสินค้า ${res.data.name} สำเร็จ`)
-//             getCategory(token)
-//         } catch (err) {
-//             console.log(err)
-//         }
-//     }
-
-//     const handleRemove = async (id) => {
-//         try {
-//             const res = await removeCategory(token, id)
-//             console.log(res)
-//             toast.success(`ลบ${res.data.name} สำเร็จ`)
-//             getCategory(token)
-//         } catch (err) {
-//             console.log(err)
-//         }
-//     }
-//     return (
-//         <div className="max-w-xl mx-auto p-6 bg-white shadow-lg rounded-lg">
-//             <h1 className="text-2xl font-bold text-gray-800 mb-4">จัดการประเภทสินค้า</h1>
-
-//             <form className="flex gap-4 mb-6" onSubmit={handleSubmit}>
-//                 <input
-//                     className="flex-1 px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
-//                     onChange={(e) => setName(e.target.value)}
-//                     type="text"
-//                     placeholder="ชื่อประเภทสินค้า"
-//                 />
-//                 <button
-//                     type="submit"
-//                     className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition"
-//                 >
-//                     เพิ่มประเภทสินค้า
-//                 </button>
-//             </form>
-
-//             <hr className="mb-4" />
-
-//             <ul className="space-y-3">
-//                 {categories.map((item, index) => (
-//                     <li
-//                         className="flex justify-between items-center bg-gray-50 p-3 rounded-md shadow-sm hover:bg-gray-100 transition"
-//                         key={index}
-//                     >
-//                         <span className="text-gray-800">{item.name}</span>
-//                         <button
-//                             className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition"
-//                             onClick={() => handleRemove(item.id)}
-//                         >
-//                             ลบ
-//                         </button>
-//                     </li>
-//                 ))}
-//             </ul>
-//         </div>
-
-//     )
-// }
-
-// export default FormCategory
-
-import React, { useMemo, useState, useEffect } from "react";
-import { createCategory, removeCategory } from "../../api/Category";
+import React, { useMemo, useState, useEffect, useRef } from "react";
+import { createCategory, removeCategory, updateCategory } from "../../api/Category";
 import useEcomStore from "../../store/ecom-store";
 import { toast } from "react-toastify";
-import { FolderTree, Plus, Trash2, Search, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { FolderTree, Plus, Trash2, Search, AlertTriangle, Edit2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const FormCategory = () => {
@@ -96,10 +12,15 @@ const FormCategory = () => {
 
     const [name, setName] = useState("");
     const [query, setQuery] = useState("");
-    const [confirmId, setConfirmId] = useState(null);
+    const [confirmItem, setConfirmItem] = useState(null); // { id, name } for delete
+    const [editItem, setEditItem] = useState(null);       // { id, name } for edit
+    const [editName, setEditName] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [bottomToast, setBottomToast] = useState(null);
+
+    const editInputRef = useRef(null);
+    const confirmBtnRef = useRef(null);
 
     useEffect(() => {
         let mounted = true;
@@ -113,13 +34,10 @@ const FormCategory = () => {
                 if (mounted) setIsLoading(false);
             }
         })();
-        return () => {
-            mounted = false;
-        };
+        return () => { mounted = false; };
     }, [getCategory, token]);
 
     const sortDesc = (a, b) => {
-        // ถ้ามี createdAt ให้ใช้, ถ้าไม่มีให้ถอยไปใช้ id แทน
         const da = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
         const db = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
         if (db !== da) return db - da;
@@ -128,14 +46,13 @@ const FormCategory = () => {
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
-        const base = [...(categories || [])].sort(sortDesc); // เรียงล่าสุดก่อน
+        const base = [...(categories || [])].sort(sortDesc);
         if (!q) return base;
         return base.filter((c) => c.name?.toLowerCase().includes(q));
     }, [categories, query]);
 
     const showBottomToast = (message, type = "success") => {
         setBottomToast({ message, type });
-        // reset timer ก่อน แล้วตั้งใหม่เพื่อไม่ให้หายทันทีเวลาแจ้งซ้ำ
         if (showBottomToast.timer) clearTimeout(showBottomToast.timer);
         showBottomToast.timer = setTimeout(() => setBottomToast(null), 2500);
     };
@@ -143,44 +60,94 @@ const FormCategory = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError(null);
-
         if (!name.trim()) {
             return toast.warning("ยังไม่ได้กรอกข้อมูล", { autoClose: 1200 });
         }
-
         try {
             setIsLoading(true);
             const res = await createCategory(token, { name: name.trim() });
-            const msg = `เพิ่มประเภทสินค้า ${res?.data?.name ?? name} สำเร็จ`;
-            //toast.success(msg, { autoClose: 1200 });
-            showBottomToast(msg, "success");
+            showBottomToast(`เพิ่มประเภทสินค้า ${res?.data?.name ?? name} สำเร็จ`, "success");
             setName("");
             await getCategory(token);
         } catch (err) {
             console.error(err);
             const msg = err?.response?.data?.message || "ไม่สามารถเพิ่มประเภทสินค้าได้";
             setError(msg);
-            // toast.error(msg, { autoClose: 1500 });
             showBottomToast(msg, "error");
         } finally {
             setIsLoading(false);
         }
     };
 
-    const handleRemove = async (id) => {
+    const doRemove = async () => {
+        if (!confirmItem) return;
         setError(null);
         try {
             setIsLoading(true);
-            const res = await removeCategory(token, id);
-            const msg = `ลบ ${res?.data?.name ?? "ประเภทสินค้า"} สำเร็จ`;
-            // toast.success(msg, { autoClose: 1200 });
-            showBottomToast(msg, "success");
+            const res = await removeCategory(token, confirmItem.id);
+            showBottomToast(`ลบ ${res?.data?.name ?? confirmItem.name ?? "ประเภทสินค้า"} สำเร็จ`, "success");
+            setConfirmItem(null);
             await getCategory(token);
         } catch (err) {
             console.error(err);
             const msg = err?.response?.data?.message || "ลบไม่สำเร็จ";
             setError(msg);
-            // toast.error(msg, { autoClose: 1500 });
+            showBottomToast(msg, "error");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // ====== Edit logic ======
+    const openEdit = (item) => {
+        setEditItem({ id: item.id, name: item.name });
+        setEditName(item.name ?? "");
+    };
+
+    // focus input + lock scroll
+    useEffect(() => {
+        if (!editItem) return;
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        const t = setTimeout(() => editInputRef.current?.focus(), 120);
+        return () => {
+            document.body.style.overflow = prev;
+            clearTimeout(t);
+        };
+    }, [editItem]);
+
+    // ESC/Enter in edit modal
+    useEffect(() => {
+        if (!editItem) return;
+        const onKey = (e) => {
+            if (e.key === "Escape") setEditItem(null);
+            if (e.key === "Enter" && !isLoading) doEditSave();
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [editItem, isLoading]);
+
+    const doEditSave = async () => {
+        if (!editItem) return;
+        const newName = (editName ?? "").trim();
+        if (!newName) {
+            return toast.warning("กรุณากรอกชื่อประเภทสินค้า", { autoClose: 1200 });
+        }
+        if (newName === editItem.name) {
+            setEditItem(null);
+            return; // ไม่มีการเปลี่ยนแปลง
+        }
+        setError(null);
+        try {
+            setIsLoading(true);
+            const res = await updateCategory(token, editItem.id, { name: newName });
+            showBottomToast(`แก้ไขเป็น “${res?.data?.name ?? newName}” สำเร็จ`, "success");
+            setEditItem(null);
+            await getCategory(token);
+        } catch (err) {
+            console.error(err);
+            const msg = err?.response?.data?.message || "แก้ไขไม่สำเร็จ";
+            setError(msg);
             showBottomToast(msg, "error");
         } finally {
             setIsLoading(false);
@@ -201,7 +168,7 @@ const FormCategory = () => {
                         </div>
                         <div>
                             <h1 className="text-xl font-semibold text-gray-900">จัดการประเภทสินค้า</h1>
-                            <p className="text-sm text-gray-500">เพิ่ม / ค้นหา / ลบประเภทสินค้า</p>
+                            <p className="text-sm text-gray-500">เพิ่ม / ค้นหา / แก้ไข / ลบประเภทสินค้า</p>
                         </div>
                     </div>
                     <span className="text-sm px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">{countText}</span>
@@ -287,9 +254,19 @@ const FormCategory = () => {
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <button
-                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-red-600 border border-red-200 bg-white hover:bg-red-50 hover:border-red-300 transition"
-                                                onClick={() => setConfirmId(item.id)}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-amber-700 border border-amber-200 bg-white hover:bg-amber-50 hover:border-amber-300 transition"
+                                                onClick={() => openEdit(item)}
+                                                disabled={isLoading}
+                                                aria-label={`แก้ไข ${item.name}`}
+                                            >
+                                                <Edit2 className="w-4 h-4" />
+                                                แก้ไข
+                                            </button>
+                                            <button
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-red-600 border border-red-200 bg-white hover:bg-red-50 hover:border-red-300 transition disabled:opacity-60"
+                                                onClick={() => setConfirmItem({ id: item.id, name: item.name })}
                                                 aria-label={`ลบ ${item.name}`}
+                                                disabled={isLoading}
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                                 ลบ
@@ -303,16 +280,20 @@ const FormCategory = () => {
                 </div>
             </div>
 
-            {/* Confirm Dialog */}
+            {/* Delete Confirm Dialog */}
             <AnimatePresence>
-                {confirmId !== null && (
+                {confirmItem && (
                     <motion.div
+                        key="confirm"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
                         role="dialog"
                         aria-modal="true"
+                        onMouseDown={(e) => {
+                            if (e.target === e.currentTarget && !isLoading) setConfirmItem(null);
+                        }}
                     >
                         <motion.div
                             initial={{ scale: 0.96, opacity: 0 }}
@@ -320,30 +301,85 @@ const FormCategory = () => {
                             exit={{ scale: 0.98, opacity: 0 }}
                             className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-gray-100"
                         >
-                            <div className="p-6 flex items-start gap-3">
-                                <div className="p-2.5 rounded-xl bg-red-50 border border-red-100">
-                                    <AlertTriangle className="w-5 h-5 text-red-600" />
-                                </div>
-                                <div>
-                                    <h2 className="text-lg font-semibold text-gray-900">ยืนยันการลบ</h2>
-                                    <p className="text-gray-600 mt-1 text-sm">การลบประเภทสินค้าอาจมีผลต่อสินค้าในหมวดนี้ คุณแน่ใจหรือไม่?</p>
-                                </div>
+                            <div className="p-6">
+                                <h2 className="text-lg font-semibold text-gray-900">ยืนยันการลบ</h2>
+                                <p className="text-gray-600 mt-1 text-sm">
+                                    ต้องการลบ <span className="font-medium text-gray-900">“{confirmItem?.name}”</span> ใช่หรือไม่?
+                                </p>
                             </div>
                             <div className="px-6 pb-6 flex items-center justify-end gap-3">
                                 <button
-                                    className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition"
-                                    onClick={() => setConfirmId(null)}
+                                    className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition disabled:opacity-60"
+                                    onClick={() => setConfirmItem(null)}
+                                    disabled={isLoading}
                                 >
                                     ยกเลิก
                                 </button>
                                 <button
-                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700 transition"
-                                    onClick={async () => {
-                                        const id = confirmId; setConfirmId(null); await handleRemove(id);
-                                    }}
+                                    ref={confirmBtnRef}
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-60"
+                                    onClick={doRemove}
+                                    disabled={isLoading}
                                 >
                                     <Trash2 className="w-4 h-4" />
-                                    ลบเลย
+                                    {isLoading ? "กำลังลบ..." : "ลบเลย"}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Edit Dialog */}
+            <AnimatePresence>
+                {editItem && (
+                    <motion.div
+                        key="edit"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+                        role="dialog"
+                        aria-modal="true"
+                        onMouseDown={(e) => {
+                            if (e.target === e.currentTarget && !isLoading) setEditItem(null);
+                        }}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.96, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.98, opacity: 0 }}
+                            className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-gray-100"
+                        >
+                            <div className="p-6 space-y-3">
+                                <h2 className="text-lg font-semibold text-gray-900">แก้ไขประเภทสินค้า</h2>
+                                <label className="text-sm text-gray-600">ชื่อประเภทสินค้า</label>
+                                <input
+                                    ref={editInputRef}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-300"
+                                    value={editName}
+                                    onChange={(e) => setEditName(e.target.value)}
+                                    placeholder="เช่น S M L XL "
+                                />
+                                <p className="text-xs text-gray-600">
+                                    หลีกเลี่ยงชื่อซ้ำกับรายการอื่น (ระบบจะเตือนหากซ้ำ)
+                                </p>
+                            </div>
+                            <div className="px-6 pb-6 flex items-center justify-end gap-3">
+                                <button
+                                    className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition disabled:opacity-60"
+                                    onClick={() => setEditItem(null)}
+                                    disabled={isLoading}
+                                >
+                                    ยกเลิก
+                                </button>
+                                <button
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition disabled:opacity-60"
+                                    onClick={doEditSave}
+                                    disabled={isLoading}
+                                >
+                                    <Edit2 className="w-4 h-4" />
+                                    {isLoading ? "กำลังบันทึก..." : "บันทึก"}
                                 </button>
                             </div>
                         </motion.div>
@@ -359,8 +395,9 @@ const FormCategory = () => {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -12 }}
                         className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-white bg-black/90"
+                        role="status"
+                        aria-live="polite"
                     >
-                        {/* จุดไฟเล็กๆ แทนไอคอน เพื่อให้เรียบและเล็ก */}
                         <span className="inline-block w-2 h-2 rounded-full bg-white/80" />
                         <span className="text-sm font-medium">{bottomToast.message}</span>
                     </motion.div>

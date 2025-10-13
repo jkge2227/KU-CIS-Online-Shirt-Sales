@@ -9,6 +9,9 @@ import {
     Package,
     LogOut,
     Layers,
+    UserRoundPen,
+    ShoppingCart,
+    Store,
 } from 'lucide-react'
 
 const navItemClasses = (isActive) =>
@@ -63,6 +66,16 @@ const SidebarAdmin = () => {
                     <Label show={!collapsed}>แดชบอร์ด</Label>
                 </NavLink>
 
+                <NavLink to="adminusers" end className={({ isActive }) => navItemClasses(isActive)}>
+                    <UserRoundPen  className="shrink-0" />
+                    <Label show={!collapsed}>จัดการผู้ใช้</Label>
+                </NavLink>
+
+                <NavLink to="statusorder" end className={({ isActive }) => navItemClasses(isActive)}>
+                    <ShoppingCart   className="shrink-0" />
+                    <Label show={!collapsed}>จัดการคำสั่งซื้อ</Label>
+                </NavLink>
+
                 <NavLink to="category" className={({ isActive }) => navItemClasses(isActive)}>
                     <ChartBarStacked className="shrink-0" />
                     <Label show={!collapsed}>ประเภทสินค้า</Label>
@@ -77,10 +90,14 @@ const SidebarAdmin = () => {
                     <Layers className="shrink-0" />
                     <Label show={!collapsed}>รุ่นเสื้อ</Label>
                 </NavLink>
-
                 <NavLink to="product" className={({ isActive }) => navItemClasses(isActive)}>
                     <Package className="shrink-0" />
                     <Label show={!collapsed}>สินค้า</Label>
+                </NavLink>
+
+                <NavLink to="/shop" className={({ isActive }) => navItemClasses(isActive)}>
+                    <Store className="shrink-0" />
+                    <Label show={!collapsed}>สั่งซื้อหน้าร้าน</Label>
                 </NavLink>
             </nav>
         </motion.aside>

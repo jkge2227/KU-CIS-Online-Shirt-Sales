@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState, useRef } from "react";
 import useEcomStore from "../../store/ecom-store";
 import { listUserOrders, deleteUserOrder } from "../../api/users";
 import { toast } from "react-toastify";
-import { CheckCircle2, Clock3, XCircle, MapPin, ExternalLink } from "lucide-react";
+import { CheckCircle2, Clock3, MapPin, ExternalLink } from "lucide-react"; // ⬅️ ตัด XCircle ออก
 import Swal from "sweetalert2";
 
 // ---------- Helpers ----------
@@ -24,14 +24,14 @@ const fmtRemain = (ms) => {
   return parts.join(" ");
 };
 
+// ใช้แค่ 2 สถานะที่ยังแสดงผล: กำลังรับออเดอร์ / รับออเดอร์เสร็จสิ้น
 const normalizeStatus = (s) => {
   if (!s) return "กำลังรับออเดอร์";
   const t = String(s).trim().toLowerCase();
   if (t === "กำลังรับออเดอร์") return "กำลังรับออเดอร์";
   if (t === "processing" || t === "รับออเดอร์เสร็จสิ้น") return "รับออเดอร์เสร็จสิ้น";
-  if (t === "completed" || t === "คำสั่งซื้อสำเร็จ") return "คำสั่งซื้อสำเร็จ";
-  if (t === "cancelled" || t === "ยกเลิก") return "ยกเลิก";
-  return s;
+  // "completed/คำสั่งซื้อสำเร็จ" และ "cancelled/ยกเลิก" จะไม่ถูกส่งมา/ถูกกรองทิ้งแล้ว
+  return "กำลังรับออเดอร์";
 };
 
 // ---------- UI ----------
@@ -39,12 +39,8 @@ const StatusBadge = ({ status = "กำลังรับออเดอร์" 
   const styles = {
     "กำลังรับออเดอร์": "bg-yellow-50 text-yellow-700 ring-yellow-200",
     "รับออเดอร์เสร็จสิ้น": "bg-blue-50 text-blue-700 ring-blue-200",
-    "คำสั่งซื้อสำเร็จ": "bg-green-50 text-green-700 ring-green-200",
-    "ยกเลิก": "bg-red-50 text-red-700 ring-red-200",
   };
-  const Icon =
-    status === "คำสั่งซื้อสำเร็จ" ? CheckCircle2 :
-      status === "ยกเลิก" ? XCircle : Clock3;
+  const Icon = status === "รับออเดอร์เสร็จสิ้น" ? CheckCircle2 : Clock3;
 
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ring-1 ${styles[status] ?? styles["กำลังรับออเดอร์"]}`}>
@@ -79,10 +75,10 @@ const Order = () => {
         const res = await listUserOrders(token);
         const list = res.data?.order ?? res.data?.orders ?? [];
 
-        // ✅ กันพลาดฝั่ง client: กรอง Completed ทิ้ง
+        // ✅ กันพลาดฝั่ง client: กรอง Completed/Cancelled ทิ้ง (แม้ backend จะกรองแล้วก็ตาม)
         const cleaned = (Array.isArray(list) ? list : []).filter(o => {
           const t = String(o.orderStatus || "").trim().toLowerCase();
-          return t !== "completed" && t !== "คำสั่งซื้อสำเร็จ";
+          return !["completed", "คำสั่งซื้อสำเร็จ", "cancelled", "ยกเลิก"].includes(t);
         });
 
         setOrders(cleaned);
@@ -302,7 +298,7 @@ const Order = () => {
                             <div className="text-sm text-black">จำนวน : <b className=" text-black font-medium">{qty} ตัว</b></div>
                           </div>
 
-                          {/* ✅ นัดรับสินค้า (อยู่ตำแหน่งเดิม แต่ปรับสไตล์ให้สวย/อ่านง่าย) */}
+                          {/* นัดรับสินค้า */}
                           {hasPickup && (
                             <div className="w-full sm:w-auto max-w-full sm:max-w-md py-4 px-5 rounded-xl border border-gray-200 bg-white text-gray-800 shadow-sm">
                               <div className="flex items-start gap-3">
@@ -312,7 +308,6 @@ const Order = () => {
 
                                 {/* เนื้อหา */}
                                 <div className="w-full space-y-2">
-                                  {/* หัวข้อ + ปุ่ม เปิดแผนที่ ชิดขวา */}
                                   <div className="flex items-center justify-between gap-3">
                                     <div className="text-base font-semibold tracking-tight">
                                       สถานที่นัดรับ
@@ -333,6 +328,8 @@ const Order = () => {
                                       </a>
                                     )}
                                   </div>
+
+                                  {/* (ตัดการ์ดเหตุผลยกเลิกออก) */}
 
                                   {/* ที่อยู่ */}
                                   <div className="text-sm leading-snug whitespace-pre-wrap break-words">
@@ -399,7 +396,8 @@ const Order = () => {
         <div className="text-sm">หากไม่มารับสินค้าภายใน 3 วัน ระบบจะทำการยกเลิกคำสั่งซื้อ</div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-6">
+      {/* Legend เหลือแค่ 2 สถานะ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-6">
         <div className="rounded-xl border border-yellow-300/70 bg-yellow-50 p-4">
           <div className="font-semibold text-yellow-800 mb-1">กำลังรับออเดอร์</div>
           <div className="text-sm text-yellow-700">กำลังเตรียมสินค้า</div>
@@ -407,10 +405,6 @@ const Order = () => {
         <div className="rounded-xl border border-blue-300/70 bg-blue-50 p-4">
           <div className="font-semibold text-blue-800 mb-1">รับออเดอร์เสร็จสิ้น</div>
           <div className="text-sm text-blue-700">จัดเตรียมสินค้าเสร็จ รอผู้ซื้อมารับและชำระเงิน</div>
-        </div>
-        <div className="rounded-xl border border-green-300/70 bg-green-50 p-4">
-          <div className="font-semibold text-green-800 mb-1">คำสั่งซื้อสำเร็จ</div>
-          <div className="text-sm text-green-700">ผู้ซื้อมารับสินค้าแล้ว</div>
         </div>
       </div>
     </div>

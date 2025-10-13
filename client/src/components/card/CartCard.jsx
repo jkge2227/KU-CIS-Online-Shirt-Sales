@@ -115,6 +115,64 @@ const CartCard = () => {
     }
   };
 
+  // เก็บเฉพาะตัวเลข
+  const digitsOnly = (v) => String(v ?? "").replace(/\D/g, "");
+
+  /** ฟอร์แมตบัตรประชาชนไทยเป็น 1-2345-67890-12-3
+   *  options:
+   *    - mask: true/false  (ปิดเลขเป็น x)
+   *    - visible: จำนวนหลักที่โชว์จริงก่อนปิด (เริ่มที่ซ้าย)
+   */
+  const formatThaiIdCard = (value, { mask = false, visible = 7 } = {}) => {
+    const pattern = [1, 4, 5, 2, 1]; // รวม 13 หลัก
+    const raw = digitsOnly(value).slice(0, 13);
+
+    const masked = (() => {
+      if (!mask) return raw;
+      const keep = raw.slice(0, visible);
+      const rest = raw.length - visible;
+      return keep + (rest > 0 ? "X".repeat(rest) : "");
+    })();
+
+    // ตัดแบ่งตามแพทเทิร์น และไม่โชว์กลุ่มว่างท้ายๆ
+    let i = 0;
+    const groups = [];
+    for (const len of pattern) {
+      if (i >= masked.length) break;
+      groups.push(masked.slice(i, i + len));
+      i += len;
+    }
+    return groups.filter(Boolean).join("-");
+  };
+
+  /** ฟอร์แมตเบอร์มือถือไทยเป็น 0xx-xxx-xxxx
+   *  options:
+   *    - mask: true/false
+   *    - visible: จำนวนหลักที่โชว์ก่อนปิด
+   */
+  const formatThaiPhone = (value, { mask = false, visible = 6 } = {}) => {
+    const pattern = [3, 3, 4]; // ส่วนมากมือถือไทย 10 หลัก: 0xx-xxx-xxxx
+    const raw = digitsOnly(value).slice(0, 10);
+
+    const masked = (() => {
+      if (!mask) return raw;
+      const keep = raw.slice(0, visible);
+      const rest = raw.length - visible;
+      return keep + (rest > 0 ? "X".repeat(rest) : "");
+    })();
+
+    // แบ่งตามแพทเทิร์น (ยืดหยุ่นกับความยาวที่ยังพิมพ์ไม่ครบ)
+    let i = 0;
+    const groups = [];
+    for (const len of pattern) {
+      if (i >= masked.length) break;
+      groups.push(masked.slice(i, i + len));
+      i += len;
+    }
+    return groups.filter(Boolean).join("-");
+  };
+
+
   // หลัง variants หรือ editingItem เปลี่ยน → ทำให้ sizeSel/genSel เป็นค่าที่ "มีจริง"
   useEffect(() => {
     if (!editOpen) return;
@@ -190,7 +248,7 @@ const CartCard = () => {
               <div className="mb-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 px-4 py-2 rounded-lg">
                 โปรดเข้าสู่ระบบเพื่อดูคำสั่งซื้อของคุณ
               </div>
-            )}  
+            )}
             <div className="bg-white p-6 rounded-xl border text-gray-500">
               ยังไม่มีสินค้าในตะกร้า
             </div>
@@ -243,7 +301,7 @@ const CartCard = () => {
                     </p>
 
                     {Number.isFinite(maxStock) && (
-                      <p className="text-sm text-red-500">
+                      <p className={`text-sm ${Number(maxStock) < 9 ? "text-red-600" : "text-gray-700"}`}>
                         สต็อกคงเหลือ: {maxStock} ตัว
                       </p>
                     )}
@@ -323,8 +381,14 @@ const CartCard = () => {
         {/* ข้อมูลผู้ใช้ */}
         {users ? (
           <div className="mb-3">
-            <p>เบอร์โทรศัพท์ : {users?.phone ?? "-"}</p>
-            <p>เลขบัตรประจำตัวประชาชน : {users?.id_card ?? "-"}</p>
+            <p>
+              เบอร์โทรศัพท์ :
+              {users?.phone ? formatThaiPhone(users.phone, { mask: false, visible: 6 }) : "-"}
+            </p>
+            <p>
+              เลขบัตรประชาชน :
+              {users?.id_card ? formatThaiIdCard(users.id_card, { mask: true, visible: 7 }) : "-"}
+            </p>
           </div>
         ) : (
           <div className="mb-3 text-sm text-gray-600">
@@ -434,9 +498,15 @@ const CartCard = () => {
 
           {/* แสดงสต็อกของคู่ที่เลือก (ถ้า match) */}
           {selectedVariant && (
-            <div className="text-sm text-gray-600">
+            <div
+              className={`text-sm ${Number(selectedVariant.quantity || 0) < 9 ? "text-red-600" : "text-gray-700"
+                }`}
+            >
               สต็อกคงเหลือของตัวเลือกนี้:{" "}
-              <b className="text-gray-900">{selectedVariant.quantity}</b> ตัว
+              <b className="font-semibold">
+                {Number(selectedVariant.quantity || 0)}
+              </b>{" "}
+              ตัว
             </div>
           )}
         </div>

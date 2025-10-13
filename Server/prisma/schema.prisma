@@ -22,11 +22,13 @@ model Users {
   updatedAt  DateTime @updatedAt
 
   // back-relations
-  carts         Cart[]
-  orders        Order[]
-  reviews       ProductReview[]
-  orderhistory  orderhistory[]
-  PasswordOTP   PasswordOTP[]
+  carts        Cart[]
+  reviews      ProductReview[]
+  orderhistory orderhistory[]
+  PasswordOTP  PasswordOTP[]
+
+  orders         Order[] @relation("UserOrders")
+  canceledOrders Order[] @relation("UserCanceledOrders")
 }
 
 model Category {
@@ -113,14 +115,23 @@ model Order {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  cancelReason String? // เหตุผลหลัก เช่น "ลูกค้ายกเลิกเอง"
+  cancelNote   String? // รายละเอียดเพิ่มเติมจาก modal
+  canceledAt   DateTime? // เวลา/วันที่ยกเลิก
+  canceledById Int? // (ออปชัน) ใครเป็นคนกดยกเลิก
+
   pickupPlace String?
   pickupAt    DateTime?
   pickupNote  String?
 
-  orderBuy Users            @relation(fields: [orderById], references: [id])
+  orderBuy   Users  @relation("UserOrders", fields: [orderById], references: [id])
+  canceledBy Users? @relation("UserCanceledOrders", fields: [canceledById], references: [id])
+
   products ProductOnOrder[]
 
   @@index([orderById], map: "Order_orderById_idx")
+  @@index([orderStatus]) // 👉 ค้นหา/สรุปตามสถานะเร็วขึ้น
+  @@index([canceledAt]) // 👉 สรุปยอดยกเลิกตามช่วงเวลา
 }
 
 model ProductOnOrder {
@@ -232,4 +243,17 @@ model PasswordOTP {
   user Users @relation(fields: [userId], references: [id])
 
   @@index([userId, expiresAt])
+}
+
+model EmailOtp {
+  id         Int      @id @default(autoincrement())
+  email      String   @unique
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int      @default(0)
+  lastSentAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([expiresAt])
 }

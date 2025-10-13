@@ -1,11 +1,13 @@
+// client/src/components/admin/AdminSalesDashboard.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import useEcomStore from "../../store/ecom-store";
 import { adminListOrders } from "../../api/adminOrders";
 import { adminListReviewStats, adminListReviews } from "../../api/review";
+import DatePicker from "react-datepicker";
+import { toYMDThai, fromYMDThai } from "../common/ThaiDatePicker";
 import {
     Loader2,
     RefreshCw,
-    Download,
     TrendingUp,
     ShoppingCart,
     Package,
@@ -29,7 +31,7 @@ import {
     Bar,
 } from "recharts";
 
-// =============== helpers ===============
+// ================= helpers =================
 const THB = (n) =>
     (Number(n) || 0).toLocaleString("th-TH", {
         style: "currency",
@@ -45,6 +47,7 @@ const toDateUTC = (x) => {
     return new Date(s + "Z");
 };
 
+// เงินแบบชิดสวย ๆ
 const MoneyTight = ({ text }) => {
     const s = String(text || "");
     const amount = s.replace(/^฿\s?/, "");
@@ -56,15 +59,62 @@ const MoneyTight = ({ text }) => {
     );
 };
 
-const startOfDay = (yyyy_mm_dd, tz) => {
-    if (!yyyy_mm_dd) return null;
-    const base =
-        tz === "Asia/Bangkok"
-            ? `${yyyy_mm_dd}T00:00:00+07:00`
-            : `${yyyy_mm_dd}T00:00:00Z`;
-    return new Date(base);
+// --- แปลง key ช่วงเวลาให้เป็นภาษาไทยบนกราฟ ---
+const fmtThaiPeriodLabel = (x, gran) => {
+    try {
+        if (!x) return "";
+        if (gran === "year") {
+            // x = "2025"
+            return String(x);
+        }
+        if (gran === "month") {
+            // x = "YYYY-MM"
+            const [y, m] = String(x).split("-").map(Number);
+            const d = new Date(Date.UTC(y, (m || 1) - 1, 1));
+            // ใช้ locale ไทย + timeZone ไทย เพื่อชื่อเดือนแบบ “ต.ค. 2025”
+            return d.toLocaleDateString("th-TH", {
+                month: "short",
+                year: "numeric",
+                timeZone: "Asia/Bangkok",
+            });
+        }
+        // gran === "day", x = "YYYY-MM-DD"
+        const [y, m, d0] = String(x).split("-").map(Number);
+        const d = new Date(Date.UTC(y, (m || 1) - 1, d0 || 1));
+        // “1 ต.ค.” (ไม่ต้องใส่ปีเพราะแกน X แน่นอยู่แล้ว)
+        return d.toLocaleDateString("th-TH", {
+            day: "numeric",
+            month: "short",
+            timeZone: "Asia/Bangkok",
+        });
+    } catch {
+        return String(x);
+    }
 };
-const nextDay = (d) => (d ? new Date(d.getTime() + 86400000) : null);
+
+
+// ---- Thai day boundaries ----
+const TH_OFFSET_MS = 7 * 60 * 60 * 1000; // +07:00
+
+// yyyy-mm-dd -> Date ที่เท่ากับ 00:00:00 ของ "วันไทย" แต่เป็น instant UTC
+const startOfThaiDayUTC = (yyyy_mm_dd) => {
+    if (!yyyy_mm_dd) return null;
+    const [y, m, d] = yyyy_mm_dd.split("-").map(Number);
+    // เที่ยงคืนเวลาไทย = 17:00 ของวันก่อนหน้าใน UTC
+    return new Date(Date.UTC(y, m - 1, d) - TH_OFFSET_MS);
+};
+const nextThaiDayUTC = (d) => (d ? new Date(d.getTime() + 24 * 60 * 60 * 1000) : null);
+
+// แปลง instant -> components ของ "วันที่ไทย"
+const datePartsTH = (date) => {
+    // ขยับเวลาไป +7 แล้วอ่านค่า UTC getter เพื่อได้ Y/M/D ของไทย
+    const t = new Date(date.getTime() + TH_OFFSET_MS);
+    return {
+        year: t.getUTCFullYear(),
+        month: t.getUTCMonth() + 1,
+        day: t.getUTCDate(),
+    };
+};
 
 const orderRevenue = (od) =>
     (od?.products || []).reduce(
@@ -79,7 +129,7 @@ const STATUS_COLOR = {
     ยกเลิก: "#EF4444",
 };
 
-// ----- ช่วยเดาประเภทเสื้อจากชื่อ (ทำฝั่ง client) -----
+// เดาประเภทเสื้อจากชื่อ (ไว้ใช้ในรีวิว)
 const reviewTypeFromTitle = (title) => {
     const t = String(title || "").trim();
     const m = t.match(/^เสื้อ\s*(.+)$/i);
@@ -125,35 +175,37 @@ const Kpi = ({ label, value, icon, trend }) => (
 export default function AdminSalesDashboard() {
     const token = useEcomStore((s) => s.token);
 
-    const [gran, setGran] = useState("day");
-    const [tz] = useState("UTC");
-
-    const [range, setRange] = useState({ start: "", end: "" });
+    const [gran, setGran] = useState("day"); // day | month | year
+    const [range, setRange] = useState({ start: "", end: "" }); // yyyy-mm-dd (Thai day)
 
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState("");
 
+
     // รีวิว (แอดมิน)
     const [reviewStats, setReviewStats] = useState([]);
     const [latestReviews, setLatestReviews] = useState([]);
-
-    // ฟิลเตอร์ประเภทเสื้อ (ไม่ใช้ดรอปดาวน์)
     const [reviewTypeFilter, setReviewTypeFilter] = useState("");
 
+    // ตั้งค่า default range ตาม "วันไทย" (วันนี้ = วันไทย)
     const applyGranDefaultRange = (g) => {
         const now = new Date();
-        const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-        const start = new Date(end);
-        if (g === "day") start.setUTCDate(start.getUTCDate() - 29);
-        if (g === "month") start.setUTCMonth(start.getUTCMonth() - 11);
-        if (g === "year") start.setUTCFullYear(start.getUTCFullYear() - 4);
+        // สร้างวันที่ไทย (ตัดเวลาออก)
+        const { year, month, day } = datePartsTH(now);
+        const endThai = new Date(Date.UTC(year, month - 1, day) - TH_OFFSET_MS); // 00:00 ไทย ของวันนี้ (instant)
+        const startThai = new Date(endThai);
 
-        const toYMD = (d) =>
-            `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
-                d.getUTCDate()
-            ).padStart(2, "0")}`;
-        setRange({ start: toYMD(start), end: toYMD(end) });
+        if (g === "day") startThai.setUTCDate(startThai.getUTCDate() - 29);
+        if (g === "month") startThai.setUTCMonth(startThai.getUTCMonth() - 11);
+        if (g === "year") startThai.setUTCFullYear(startThai.getUTCFullYear() - 4);
+
+        const toYMDThai = (instant) => {
+            const p = datePartsTH(instant);
+            return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+        };
+
+        setRange({ start: toYMDThai(startThai), end: toYMDThai(endThai) });
     };
 
     useEffect(() => {
@@ -174,10 +226,11 @@ export default function AdminSalesDashboard() {
                 const { data } = await adminListOrders(token, {
                     page,
                     pageSize,
-                    status: "",
-                    q: "",
+                    // ไม่ใช้ server filter ของวันที่ เพื่อความชัวร์เรื่อง timezone ก็ได้
                     startDate: range.start,
                     endDate: range.end,
+                    status: "",
+                    q: "",
                 });
                 const batch = data?.data || [];
                 all = all.concat(batch);
@@ -217,22 +270,25 @@ export default function AdminSalesDashboard() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token, range.start, range.end]);
 
+    // ====== filter ช่วงวันที่แบบ "วันไทย" ======
     const filtered = useMemo(() => {
-        const from = startOfDay(range.start, tz);
-        const to = nextDay(startOfDay(range.end, tz));
+        const from = startOfThaiDayUTC(range.start);
+        const to = nextThaiDayUTC(startOfThaiDayUTC(range.end)); // [from, to)
         return rows.filter((od) => {
             const t = toDateUTC(od.createdAt);
             if (from && t < from) return false;
             if (to && t >= to) return false;
             return true;
         });
-    }, [rows, range.start, range.end, tz]);
+    }, [rows, range.start, range.end]);
 
+    // เฉพาะออเดอร์สำเร็จ
     const successOrders = useMemo(
         () => filtered.filter((o) => String(o.orderStatus).trim() === "คำสั่งซื้อสำเร็จ"),
         [filtered]
     );
 
+    // ====== KPIs (ให้ตรง) ======
     const kpis = useMemo(() => {
         const orderCount = successOrders.length;
         const revenue = successOrders.reduce((s, od) => s + orderRevenue(od), 0);
@@ -240,28 +296,27 @@ export default function AdminSalesDashboard() {
             (s, od) => s + (od.products || []).reduce((x, p) => x + Number(p.count || 0), 0),
             0
         );
-        const aov = orderCount ? revenue / orderCount : 0;
-        return { orderCount, revenue, items, aov };
+        return { orderCount, revenue, items };
     }, [successOrders]);
 
-    const keyFor = (dateStr) => {
+    // ====== กลุ่มตามช่วงเวลาแบบ "วันไทย" จริง ======
+    const keyForThai = (dateStr) => {
         const d = toDateUTC(dateStr);
         if (!d) return "-";
+        const p = datePartsTH(d);
         if (gran === "day") {
-            return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
-                d.getUTCDate()
-            ).padStart(2, "0")}`;
+            return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
         }
         if (gran === "month") {
-            return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+            return `${p.year}-${String(p.month).padStart(2, "0")}`;
         }
-        return `${d.getUTCFullYear()}`;
+        return `${p.year}`;
     };
 
     const revenueByPeriod = useMemo(() => {
         const map = new Map();
         for (const od of successOrders) {
-            const k = keyFor(od.createdAt);
+            const k = keyForThai(od.createdAt); // 🔒 ใช้วันไทย
             map.set(k, (map.get(k) || 0) + orderRevenue(od));
         }
         return Array.from(map.entries())
@@ -293,9 +348,7 @@ export default function AdminSalesDashboard() {
                 map.set(key, prev);
             }
         }
-        return Array.from(map.values())
-            .sort((a, b) => b.revenue - a.revenue)
-            .slice(0, 10);
+        return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
     }, [successOrders]);
 
     const topCustomers = useMemo(() => {
@@ -313,9 +366,7 @@ export default function AdminSalesDashboard() {
             prev.revenue += orderRevenue(od);
             map.set(key, prev);
         }
-        return Array.from(map.values())
-            .sort((a, b) => b.revenue - a.revenue)
-            .slice(0, 8);
+        return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 8);
     }, [successOrders]);
 
     // ====== ประเภทเสื้อ + ฟิลเตอร์แบบปุ่มชิป ======
@@ -338,30 +389,6 @@ export default function AdminSalesDashboard() {
         );
     }, [latestReviews, reviewTypeFilter]);
 
-    const exportCSV = () => {
-        const rowsCsv = [
-            ["OrderID", "CreatedAt(UTC)", "Status", "Customer", "Email", "TotalTHB"],
-            ...successOrders.map((od) => [
-                od.id,
-                toDateUTC(od.createdAt).toISOString(),
-                od.orderStatus,
-                `${od.orderBuy?.first_name || ""} ${od.orderBuy?.last_name || ""}`.trim(),
-                od.orderBuy?.email || "",
-                orderRevenue(od),
-            ]),
-        ];
-        const csv = rowsCsv
-            .map((r) => r.map((x) => `"${String(x).replaceAll('"', '""')}"`).join(","))
-            .join("\n");
-        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `sales_${range.start}_to_${range.end}_${gran}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
-    };
-
     // =============== UI ===============
     return (
         <div className="max-w-7xl mx-auto p-6 space-y-6">
@@ -372,7 +399,8 @@ export default function AdminSalesDashboard() {
                         <LineChartIcon className="h-8 w-8 text-indigo-600" /> สรุปยอดขาย
                     </div>
                     <div className="text-gray-500 text-sm mt-1">
-                        สรุปเฉพาะออเดอร์สถานะ “คำสั่งซื้อสำเร็จ” แสดงผลแบบ {gran === "day" ? "รายวัน" : gran === "month" ? "รายเดือน" : "รายปี"}
+                        สรุปยอดออเดอร์ แสดงผลแบบ{" "}
+                        {gran === "day" ? "รายวัน" : gran === "month" ? "รายเดือน" : "รายปี"}
                     </div>
                 </div>
 
@@ -387,7 +415,8 @@ export default function AdminSalesDashboard() {
                             <button
                                 key={k}
                                 onClick={() => setGran(k)}
-                                className={`px-3 py-2 text-sm ${gran === k ? "bg-indigo-600 text-white" : "bg-white hover:bg-gray-50"}`}
+                                className={`px-3 py-2 text-sm ${gran === k ? "bg-indigo-600 text-white" : "bg-white hover:bg-gray-50"
+                                    }`}
                                 title={label}
                                 type="button"
                             >
@@ -396,14 +425,14 @@ export default function AdminSalesDashboard() {
                         ))}
                     </div>
 
-                    {/* ช่วงวันที่ */}
+                    {/* ช่วงวันที่ (ไทย) */}
                     <div className="flex items-center gap-2">
                         <input
                             type="date"
                             className="px-3 py-2 w-[150px] border rounded-lg"
                             value={range.start}
                             onChange={(e) => setRange((r) => ({ ...r, start: e.target.value }))}
-                            title="วันที่เริ่ม"
+                            title="วันที่เริ่ม (วันไทย)"
                         />
                         <span className="text-gray-500">ถึง</span>
                         <input
@@ -411,27 +440,21 @@ export default function AdminSalesDashboard() {
                             className="px-3 py-2 w-[150px] border rounded-lg"
                             value={range.end}
                             onChange={(e) => setRange((r) => ({ ...r, end: e.target.value }))}
-                            title="วันที่สิ้นสุด"
+                            title="วันที่สิ้นสุด (วันไทย)"
                         />
                     </div>
 
-                    {/* ปุ่มแยก ไม่ติดกัน */}
+                    {/* โหลดใหม่ */}
                     <button
-                        onClick={() => { fetchOrders(); fetchReviews(); }}
+                        onClick={() => {
+                            fetchOrders();
+                            fetchReviews();
+                        }}
                         className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 inline-flex items-center gap-2"
                         title="รีเฟรช"
                         type="button"
                     >
                         <RefreshCw className="h-4 w-4" /> โหลดใหม่
-                    </button>
-
-                    <button
-                        onClick={exportCSV}
-                        className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 inline-flex items-center gap-2"
-                        title="ดาวน์โหลด CSV"
-                        type="button"
-                    >
-                        <Download className="h-4 w-4" /> ส่งออก CSV
                     </button>
                 </div>
             </div>
@@ -448,12 +471,23 @@ export default function AdminSalesDashboard() {
 
             {!loading && !err && (
                 <>
-                    {/* KPIs */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <Kpi label="ยอดขายรวม" value={<MoneyTight text={THB(kpis.revenue)} />} icon={<TrendingUp className="h-5 w-5" />} />
-                        <Kpi label="จำนวนออเดอร์สำเร็จ" value={nfmt(kpis.orderCount)} icon={<ShoppingCart className="h-5 w-5" />} />
-                        <Kpi label="ราคาต่อออเดอร์ (AOV)" value={<MoneyTight text={THB(kpis.aov)} />} icon={<LineChartIcon className="h-5 w-5" />} />
-                        <Kpi label="จำนวนชิ้นที่ขาย" value={nfmt(kpis.items)} icon={<Package className="h-5 w-5" />} />
+                    {/* KPIs: ไม่มี AOV แล้ว */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <Kpi
+                            label="ยอดขายรวม"
+                            value={<MoneyTight text={THB(kpis.revenue)} />}
+                            icon={<TrendingUp className="h-5 w-5" />}
+                        />
+                        <Kpi
+                            label="จำนวนออเดอร์สำเร็จ"
+                            value={nfmt(kpis.orderCount)}
+                            icon={<ShoppingCart className="h-5 w-5" />}
+                        />
+                        <Kpi
+                            label="จำนวนชิ้นที่ขาย"
+                            value={nfmt(kpis.items)}
+                            icon={<Package className="h-5 w-5" />}
+                        />
                     </div>
 
                     {/* Charts */}
@@ -461,26 +495,34 @@ export default function AdminSalesDashboard() {
                         <Card className="lg:col-span-2">
                             <CardHeader
                                 title={`ยอดขายแบบ${gran === "day" ? "รายวัน" : gran === "month" ? "รายเดือน" : "รายปี"}`}
-                                subtitle="แกน X เป็นช่วงเวลา / แกน Y เป็นยอดขาย (บาท)"
+                                subtitle="แกน X เป็นช่วงเวลา (วันไทย) / แกน Y เป็นยอดขาย (บาท)"
                                 icon={<LineChartIcon className="h-5 w-5 text-indigo-600" />}
                             />
                             <div className="p-4 h-72">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <LineChart data={revenueByPeriod} margin={{ top: 10, right: 20, bottom: 0, left: 0 }}>
                                         <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis dataKey="x" tick={{ fontSize: 12 }} />
+                                        <XAxis
+                                            dataKey="x"
+                                            tick={{ fontSize: 12 }}
+                                            tickFormatter={(v) => fmtThaiPeriodLabel(v, gran)}     // ⬅️ ชื่อเดือนภาษาไทยบนแกน X
+                                        />
                                         <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => (v / 1000).toFixed(0) + "k"} />
-                                        <Tooltip formatter={(v) => THB(v)} />
+                                        <Tooltip
+                                            formatter={(v) => THB(v)}
+                                            labelFormatter={(v) => fmtThaiPeriodLabel(v, gran)}     // ⬅️ ชื่อเดือนภาษาไทยใน tooltip
+                                        />
                                         <Line type="monotone" dataKey="total" stroke="#4f46e5" strokeWidth={2} dot={false} />
                                     </LineChart>
                                 </ResponsiveContainer>
+
                             </div>
                         </Card>
 
                         <Card>
                             <CardHeader
                                 title="สัดส่วนสถานะออเดอร์"
-                                subtitle="ต่อจำนวนออเดอร์"
+                                subtitle="ต่อจำนวนออเดอร์ (ช่วงวันที่ไทย)"
                                 icon={<PieChartIcon className="h-5 w-5 text-indigo-600" />}
                             />
                             <div className="p-4">
@@ -528,7 +570,7 @@ export default function AdminSalesDashboard() {
                         <Card>
                             <CardHeader
                                 title="สินค้า Top 10 (ตามยอดขาย)"
-                                subtitle="ช่วงวันที่ที่เลือก"
+                                subtitle="ช่วงวันที่ไทยที่เลือก"
                                 icon={<Package className="h-5 w-5 text-indigo-600" />}
                             />
                             <div className="p-4">
@@ -569,7 +611,7 @@ export default function AdminSalesDashboard() {
                         <Card>
                             <CardHeader
                                 title="ลูกค้า Top (ตามยอดซื้อ)"
-                                subtitle="ช่วงวันที่ที่เลือก"
+                                subtitle="ช่วงวันที่ไทยที่เลือก"
                                 icon={<Users className="h-5 w-5 text-indigo-600" />}
                             />
                             <div className="p-4">
@@ -610,11 +652,11 @@ export default function AdminSalesDashboard() {
 
                     {/* ★ คะแนนรีวิว & รีวิวล่าสุด */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        {/* คะแนนรีวิว (เลื่อนแนวตั้ง) */}
+                        {/* คะแนนรีวิว */}
                         <Card>
                             <CardHeader
                                 title="คะแนนรีวิวสินค้า (Top)"
-                                subtitle="ช่วงวันที่ที่เลือก"
+                                subtitle="ช่วงวันที่ไทยที่เลือก"
                                 icon={<Star className="h-5 w-5 text-yellow-500" />}
                             />
                             <div className="p-4">
@@ -660,18 +702,18 @@ export default function AdminSalesDashboard() {
                         <Card>
                             <CardHeader
                                 title="รีวิวล่าสุด"
-                                subtitle="ช่วงวันที่ที่เลือก"
+                                subtitle="ช่วงวันที่ไทยที่เลือก"
                                 icon={<Star className="h-5 w-5 text-yellow-500" />}
                             />
                             <div className="p-4">
-                                {/* แถบชิปฟิลเตอร์ (เลื่อนแนวนอนบนจอแคบ) */}
+                                {/* ชิปฟิลเตอร์ */}
                                 <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1">
                                     <button
                                         type="button"
                                         onClick={() => setReviewTypeFilter("")}
                                         className={`px-3 py-1.5 rounded-full text-sm ring-1 ${reviewTypeFilter === ""
-                                                ? "bg-indigo-600 text-white ring-indigo-600"
-                                                : "bg-white text-gray-700 ring-gray-200 hover:bg-gray-50"
+                                            ? "bg-indigo-600 text-white ring-indigo-600"
+                                            : "bg-white text-gray-700 ring-gray-200 hover:bg-gray-50"
                                             }`}
                                     >
                                         ทั้งหมด
@@ -680,12 +722,10 @@ export default function AdminSalesDashboard() {
                                         <button
                                             key={type}
                                             type="button"
-                                            onClick={() =>
-                                                setReviewTypeFilter((cur) => (cur === type ? "" : type))
-                                            }
+                                            onClick={() => setReviewTypeFilter((cur) => (cur === type ? "" : type))}
                                             className={`px-3 py-1.5 rounded-full text-sm ring-2 whitespace-nowrap ${reviewTypeFilter === type
-                                                    ? "bg-indigo-600 text-white ring-indigo-600"
-                                                    : "bg-white text-gray-900 ring-gray-200 hover:bg-gray-50"
+                                                ? "bg-indigo-600 text-white ring-indigo-600"
+                                                : "bg-white text-gray-900 ring-gray-200 hover:bg-gray-50"
                                                 }`}
                                             title={`รีวิวประเภท: ${type}`}
                                         >
@@ -702,7 +742,6 @@ export default function AdminSalesDashboard() {
                                         </div>
                                     ) : (
                                         latestReviewsFiltered.map((rv) => {
-                                            const typeName = reviewTypeFromTitle(rv.productTitle);
                                             return (
                                                 <div key={rv.id} className="p-3 rounded-xl border bg-gray-50">
                                                     <div className="flex items-center justify-between">
@@ -737,7 +776,7 @@ export default function AdminSalesDashboard() {
                         <Card>
                             <CardHeader
                                 title="กราฟยอดขาย Top 10 สินค้า"
-                                subtitle={gran === "day" ? "สรุปตามวัน" : gran === "month" ? "สรุปตามเดือน" : "สรุปตามปี"}
+                                subtitle={gran === "day" ? "สรุปตามวันไทย" : gran === "month" ? "สรุปตามเดือนไทย" : "สรุปตามปีไทย"}
                                 icon={<TrendingUp className="h-5 w-5 text-indigo-600" />}
                             />
                             <div className="p-4 h-80">

@@ -48,6 +48,15 @@ const ProductCard = ({ item }) => {
   const [count, setCount] = useState(1);
   const [saving, setSaving] = useState(false);
 
+  // ----- Helpers -----
+  const pickFirstAvailableVariant = (variants = []) => {
+    // เลือกตัวที่มีสต็อกก่อน ถ้าไม่มีเลยเอาตัวแรก
+    return (
+      variants.find((v) => (v.quantity ?? 0) > 0) ??
+      (variants.length ? variants[0] : null)
+    );
+  };
+
   // ----- Options -----
   const sizeOptions = useMemo(() => {
     const map = new Map();
@@ -71,7 +80,44 @@ const ProductCard = ({ item }) => {
     return Array.from(uniq, ([id, name]) => ({ id, name }));
   }, [item?.variants, sizeId]);
 
-  // auto set generation เป็นค่าเดียว ถ้ามีตัวเลือกเดียว (ลด 1 step)
+  // ----- Auto select: ครั้งแรก / เมื่อข้อมูลเปลี่ยน -----
+  // 1) ครั้งแรก: auto เลือก size+generation จาก variant ที่มีสต็อกก่อน
+  useEffect(() => {
+    if (!item?.variants?.length) return;
+    if (sizeId) return; // ผู้ใช้เลือกไปแล้ว ไม่ override
+
+    const first = pickFirstAvailableVariant(item.variants);
+    if (!first) return;
+
+    setSizeId(String(first.sizeId));
+    setGenerationId(first.generationId ? String(first.generationId) : "");
+  }, [item?.variants]); // ทำเมื่อรายการ variant เปลี่ยน
+
+  // 2) เมื่อเปลี่ยนไซซ์ ให้เลือกรุ่นที่ "มีสต็อก" ของไซซ์นั้นให้อัตโนมัติ
+  useEffect(() => {
+    if (!sizeId) return;
+
+    // หา variant ที่ตรงกับไซซ์นี้และมีสต็อกก่อน
+    const candidates = (item.variants || []).filter(
+      (v) => v.sizeId === Number(sizeId)
+    );
+    if (!candidates.length) {
+      setGenerationId("");
+      return;
+    }
+
+    // ถ้า generation ตอนนี้ยังว่าง หรือไม่มีในตัวเลือกของไซซ์นี้ ให้จัดให้ใหม่
+    const currentGenId = generationId === "" ? null : Number(generationId);
+    const stillValid = candidates.some(
+      (v) => (v.generationId ?? null) === currentGenId
+    );
+    if (!stillValid) {
+      const picked = pickFirstAvailableVariant(candidates);
+      setGenerationId(picked?.generationId ? String(picked.generationId) : "");
+    }
+  }, [sizeId, item?.variants]); // เปลี่ยนไซซ์หรือข้อมูล
+
+  // 3) ถ้าไซซ์เดียวและรุ่นเดียวอยู่แล้ว จะตั้งค่าให้เอง (ตัวนี้ยังช่วยกรณีไม่มีสต็อกด้วย)
   useEffect(() => {
     if (!sizeId) {
       setGenerationId("");
@@ -257,7 +303,7 @@ const ProductCard = ({ item }) => {
                   active={String(s.id) === String(sizeId)}
                   onClick={() => {
                     setSizeId(String(s.id));
-                    setGenerationId(""); // reset รุ่นเมื่อเปลี่ยน size
+                    // generation จะถูก auto เลือกใหม่ใน useEffect ด้านบน
                   }}
                 >
                   {s.name}
@@ -269,7 +315,7 @@ const ProductCard = ({ item }) => {
           </div>
         </div>
 
-        {/* Generation (โชว์เมื่อมี size แล้ว และมีมากกว่า 1 ตัวเลือก) */}
+        {/* Generation */}
         {sizeId && (
           <div className="mt-3">
             <div className="text-xs text-gray-500 mb-2">เลือกรุ่น</div>

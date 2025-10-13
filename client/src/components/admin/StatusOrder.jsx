@@ -4,157 +4,222 @@ import {
   adminListOrders,
   adminUpdateOrderStatus,
   adminCancelOrder,
-  adminDeleteOrder,
   adminBulkSetPickup,
+  adminUpdateCancelInfo,
 } from "../../api/adminOrders";
 import useEcomStore from "../../store/ecom-store";
-import { Loader2, Trash2, XCircle, RotateCw, Search, Send, MapPin, Eye } from "lucide-react";
+import {
+  Loader2,
+  XCircle,
+  RotateCw,
+  Search,
+  Send,
+  MapPin,
+  Eye,
+  CheckCircle,
+} from "lucide-react";
 
+// ---------------- Utils: สีสถานะ ----------------
 const pill = (status) => {
   if (status === "คำสั่งซื้อสำเร็จ") return "bg-emerald-100 text-emerald-700";
   if (status === "รับออเดอร์เสร็จสิ้น") return "bg-blue-100 text-blue-700";
   if (status === "ยกเลิก") return "bg-red-100 text-red-700";
-  return "bg-yellow-100 text-yellow-700";
+  return "bg-yellow-100 text-yellow-700"; // กำลังรับออเดอร์
 };
 
-// ====== ตัวเลือกโหมดกรองวันที่ ======
-// false = กรองตามวันแบบ UTC (เริ่ม 00:00Z จน <00:00Z วันถัดไป)
-// true  = กรองตามวันแบบไทย (Asia/Bangkok) แล้วแปลงเป็น UTC ช่วงเดียวกัน
-const FILTER_THAI_DAYS = false;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-const utcStartOfDay = (s) => (s ? new Date(`${s}T00:00:00Z`) : null);
-const utcStartOfNextDay = (s) => (s ? new Date(utcStartOfDay(s).getTime() + DAY_MS) : null);
-
-const thaiStartOfDayUTC = (s) => (s ? new Date(`${s}T00:00:00+07:00`) : null);
-const thaiStartOfNextDayUTC = (s) =>
-  s ? new Date(thaiStartOfDayUTC(s).getTime() + DAY_MS) : null;
-
-// แสดงเวลาเป็น UTC เสมอ
-const fmtUTC = (d) =>
+// ---------------- Utils: เวลาไทย & ฟิลเตอร์วันไทย ----------------
+const TZ_TH = "Asia/Bangkok";
+const fmtTH = (d) =>
   new Date(d).toLocaleString("th-TH", {
-    timeZone: "UTC",
+    timeZone: TZ_TH,
     dateStyle: "medium",
     timeStyle: "short",
   });
 
+// ฟิลเตอร์วันไทย (ไม่เหลื่อมวัน)
+const FILTER_THAI_DAYS = true;
+const TH_OFFSET_MS = 7 * 60 * 60 * 1000; // +07:00
+
+// รับ "YYYY-MM-DD" -> คืน JS Date ที่เท่ากับ "เที่ยงคืน(ไทย) ในเขตเวลา UTC"
+const thDayStartUTC = (s) => {
+  if (!s) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d) - TH_OFFSET_MS);
+};
+const thNextDayStartUTC = (s) => {
+  if (!s) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1) - TH_OFFSET_MS);
+};
+
+// ---------------- Utils: ค้นหาฝั่ง client ----------------
+const norm = (str) =>
+  String(str || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "") // strip accents
+    .replace(/\s+/g, " ")
+    .trim();
+
+const buildSearchIndex = (od) => {
+  const parts = [];
+  parts.push(`#${od.id}`);
+  parts.push(od.orderStatus || "");
+  parts.push(od.orderBuy?.first_name || "");
+  parts.push(od.orderBuy?.last_name || "");
+  parts.push(od.orderBuy?.email || "");
+  parts.push(od.orderBuy?.phone || "");
+  (od.products || []).forEach((p) => {
+    parts.push(p.productTitle || "");
+    parts.push(p.sizeName || "");
+    parts.push(p.generationName || "");
+  });
+  parts.push(od.pickupPlace || "");
+  parts.push(od.pickupNote || "");
+  return norm(parts.join(" | "));
+};
+
 const StatusOrder = () => {
   const token = useEcomStore((s) => s.token);
 
-  // ====== CONFIG: ช่วงเวลาอัปเดตอัตโนมัติ (มิลลิวินาที) ======
-  const POLL_MS = 10000;
-
-  // data
-  const [rows, setRows] = useState([]);
+  // data ที่โหลดมาจาก server (ดิบ ๆ)
+  const [rowsRaw, setRowsRaw] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // filters (server: q, status, page / client: startDate, endDate)
+  // ค่ากรอง (ฝั่ง client ทั้งหมด)
+  const [status, setStatus] = useState(""); // "", "กำลังรับออเดอร์", "รับออเดอร์เสร็จสิ้น", "คำสั่งซื้อสำเร็จ", "ยกเลิก"
+  const [q, setQ] = useState("");
+  const [startDate, setStartDate] = useState(""); // "YYYY-MM-DD"
+  const [endDate, setEndDate] = useState(""); // "YYYY-MM-DD"
+
+  // page client-side
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
-  const [status, setStatus] = useState("");
-  const [q, setQ] = useState("");
-  const [startDate, setStartDate] = useState(""); // YYYY-MM-DD
-  const [endDate, setEndDate] = useState("");     // YYYY-MM-DD
-  const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
 
-  // selection for bulk pickup
+  // เลือกหลายออเดอร์เพื่อส่งนัดรับ
   const [selected, setSelected] = useState([]);
 
-  // pickup modal
+  // Pickup modal (bulk)
   const [pickupOpen, setPickupOpen] = useState(false);
   const [place, setPlace] = useState("");
-  const [when, setWhen] = useState(""); // datetime-local (local browser)
+  const [when, setWhen] = useState("");
   const [note, setNote] = useState("");
 
-  // view pickup modal
+  // View pickup modal
   const [viewPickup, setViewPickup] = useState({ open: false, order: null });
 
-  // expanded product lists per order
-  const [expanded, setExpanded] = useState(new Set());
-  const toggleExpand = (id) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  // Cancel modal (ครั้งแรก)
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelId, setCancelId] = useState(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelNote, setCancelNote] = useState("");
+  const COMMON_REASONS = [
+    "ลูกค้ายกเลิกเอง",
+    "สต็อกไม่เพียงพอ",
+    "ข้อมูลออเดอร์ไม่ครบถ้วน",
+    "ชำระเงินไม่สำเร็จ/เกินกำหนด",
+    "เหตุผลอื่นๆ",
+  ];
 
-  // auto refresh toggle
-  const [autoRefresh] = useState(true);
+  // Edit cancel info modal (หลังยกเลิกแล้ว)
+  const [editCancelOpen, setEditCancelOpen] = useState(false);
+  const [editCancelId, setEditCancelId] = useState(null);
+  const [editReason, setEditReason] = useState("");
+  const [editNote, setEditNote] = useState("");
 
-  // ป้องกันโหลดซ้อน
-  const fetchingRef = useRef(false);
-
-  const isoToLocalInput = (iso) => {
-    if (!iso) return "";
-    const d = new Date(iso);
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  // Toast
+  const [toast, setToast] = useState({ open: false, msg: "", type: "success" });
+  const toastTimerRef = useRef(null);
+  const showToast = (msg, type = "success", ms = 2500) => {
+    setToast({ open: true, msg, type });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(
+      () => setToast((t) => ({ ...t, open: false })),
+      ms
+    );
   };
+  useEffect(() => () => toastTimerRef.current && clearTimeout(toastTimerRef.current), []);
 
-  // รองรับ soft-load (ไม่โชว์ spinner ทุกครั้งเมื่อเป็นงานเบื้องหลัง)
-  const load = async (opts = { silent: false }) => {
+  // โหลดข้อมูล (ไม่ส่งพารามิเตอร์ค้นหา/กรองไป server)
+  const load = async () => {
     if (!token) return;
-    if (opts.silent && fetchingRef.current) return; // กันโหลดซ้ำในเบื้องหลัง
     try {
-      fetchingRef.current = true;
-      if (!opts.silent) setLoading(true);
-
-      const { data } = await adminListOrders(token, { page, pageSize, status, q });
-      const list = data?.data || [];
-      setRows(list);
-      setMeta(data?.pagination || { total: 0, totalPages: 1 });
-
-      // เก็บ selection เฉพาะที่ยังอยู่ในหน้าปัจจุบัน
-      setSelected((prev) => prev.filter((id) => list.some((r) => r.id === id)));
-
-      // ล้าง expanded ของออเดอร์ที่ไม่อยู่ในชุดรายการปัจจุบัน
-      setExpanded((prev) => {
-        const keep = new Set([...prev].filter((id) => list.some((r) => r.id === id)));
-        return keep;
+      setLoading(true);
+      const { data } = await adminListOrders(token, {
+        page: 1,
+        pageSize: 500, // ดึงมาทีเดียวเพื่อให้ client ค้นหา/กรองได้เต็มที่
       });
+      const list = data?.data || [];
+      setRowsRaw(Array.isArray(list) ? list : []);
+      setSelected([]);
+      setPage(1);
     } catch (e) {
       console.error(e);
-      if (!opts.silent) alert(e?.response?.data?.message || "โหลดข้อมูลไม่สำเร็จ");
+      alert(e?.response?.data?.message || "โหลดข้อมูลไม่สำเร็จ");
     } finally {
-      fetchingRef.current = false;
-      if (!opts.silent) setLoading(false);
+      setLoading(false);
     }
   };
 
-  // โหลดเมื่อเปลี่ยน token/page/pageSize/status (โชว์ spinner ครั้งหลัก)
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, page, pageSize, status]);
+  }, [token]);
 
-  const onSearchClick = () => {
-    setPage(1);
-    load();
-  };
+  // แปลงเป็น index ค้นหา
+  const searchMap = useMemo(() => {
+    const m = new Map();
+    for (const od of rowsRaw) m.set(od.id, buildSearchIndex(od));
+    return m;
+  }, [rowsRaw]);
 
-  // ====== Client-side date filtering ======
-  const viewRows = useMemo(() => {
-    let arr = rows;
-    const startFn = FILTER_THAI_DAYS ? thaiStartOfDayUTC : utcStartOfDay;
-    const endFn = FILTER_THAI_DAYS ? thaiStartOfNextDayUTC : utcStartOfNextDay;
-    const from = startFn(startDate);
-    const to = endFn(endDate);
+  // ฟิลเตอร์ฝั่ง client ทั้งหมด (สถานะ, วันที่, ค้นหา)
+  const filteredRows = useMemo(() => {
+    let arr = rowsRaw;
+
+    // สถานะ
+    if (status) {
+      arr = arr.filter((od) => String(od.orderStatus || "") === status);
+    }
+
+    // วันที่ (วันไทย)
+    const from = FILTER_THAI_DAYS ? thDayStartUTC(startDate) : null;
+    const to = FILTER_THAI_DAYS ? thNextDayStartUTC(endDate) : null;
     if (from) arr = arr.filter((od) => new Date(od.createdAt) >= from);
     if (to) arr = arr.filter((od) => new Date(od.createdAt) < to);
-    return arr;
-  }, [rows, startDate, endDate]);
 
-  // selection helpers (based on filtered rows)
+    // ค้นหา (พิมพ์บางส่วนก็เจอ)
+    const qq = norm(q);
+    if (qq) {
+      arr = arr.filter((od) => {
+        const hay = searchMap.get(od.id) || "";
+        return hay.includes(qq);
+      });
+    }
+
+    return arr;
+  }, [rowsRaw, status, startDate, endDate, q, searchMap]);
+
+  // จัดหน้า (client-side)
+  const total = filteredRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageSafe = Math.min(Math.max(1, page), totalPages);
+  const viewRows = useMemo(() => {
+    const start = (pageSafe - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, pageSafe, pageSize]);
+
+  // selection helpers
   const allInPageIds = viewRows.map((r) => r.id);
   const allSelectedInPage =
-    allInPageIds.length > 0 && allInPageIds.every((id) => selected.includes(id));
+    allInPageIds.length > 0 &&
+    allInPageIds.every((id) => selected.includes(id));
 
   const toggleOne = (id) => {
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
-
   const toggleAllInPage = () => {
     setSelected((prev) =>
       allSelectedInPage
@@ -163,15 +228,12 @@ const StatusOrder = () => {
     );
   };
 
-  // allow pickup only for 'รับออเดอร์เสร็จสิ้น'
-  const selectedReadyIds = selected.filter((id) => {
-    const row = rows.find((r) => r.id === id);
-    return row?.orderStatus === "รับออเดอร์เสร็จสิ้น";
-  });
-
+  // เฉพาะออเดอร์ที่อยู่ในสถานะ "รับออเดอร์เสร็จสิ้น" เท่านั้นถึงส่งนัดรับได้
+  const selectedReadyIds = selected.filter(
+    (id) => rowsRaw.find((r) => r.id === id)?.orderStatus === "รับออเดอร์เสร็จสิ้น"
+  );
   const canSendPickup = selectedReadyIds.length > 0 && place.trim().length > 0;
 
-  const openPickup = () => setPickupOpen(true);
   const closePickup = () => {
     setPickupOpen(false);
     setPlace("");
@@ -179,108 +241,140 @@ const StatusOrder = () => {
     setNote("");
   };
 
+  const isoToLocalInput = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+      d.getDate()
+    )}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  // ---------- Actions ----------
   const sendPickup = async () => {
     if (!canSendPickup) return;
     try {
       await adminBulkSetPickup(token, {
         orderIds: selectedReadyIds,
         place: place.trim(),
-        pickupAt: when ? new Date(when).toISOString() : undefined, // เซฟเป็น UTC ISO
+        pickupAt: when ? new Date(when).toISOString() : undefined, // เก็บ UTC
         note: note?.trim() || undefined,
       });
-      alert(`ตั้งค่านัดรับให้ ${selectedReadyIds.length} ออเดอร์แล้ว`);
+      showToast(`ตั้งค่านัดรับให้ ${selectedReadyIds.length} ออเดอร์แล้ว`, "success");
       closePickup();
       load();
     } catch (e) {
       console.error(e);
-      alert(e?.response?.data?.message || "ตั้งค่านัดรับไม่สำเร็จ");
+      showToast(e?.response?.data?.message || "ตั้งค่านัดรับไม่สำเร็จ", "error", 3500);
     }
   };
 
   const onQuickStatus = async (id, next) => {
     try {
       await adminUpdateOrderStatus(token, id, next);
-      load({ silent: true });
+      showToast(`อัปเดตสถานะ #${id} -> ${next}`, "success");
+      load();
     } catch (e) {
       console.error(e);
-      alert(e?.response?.data?.message || "อัปเดตสถานะไม่สำเร็จ");
+      showToast(e?.response?.data?.message || "อัปเดตสถานะไม่สำเร็จ", "error", 3500);
     }
   };
 
-  const onCancel = async (id) => {
-    if (!confirm("ยืนยันยกเลิกออเดอร์นี้? (ระบบจะคืนสต็อกให้)")) return;
+  // cancel (ครั้งแรก)
+  const onCancel = (id) => {
+    setCancelId(id);
+    setCancelReason("");
+    setCancelNote("");
+    setCancelOpen(true);
+  };
+
+  const sendCancel = async () => {
+    if (!cancelId) return;
+    if (!cancelReason.trim()) {
+      alert("กรุณาเลือก/กรอกสาเหตุการยกเลิก");
+      return;
+    }
     try {
-      await adminCancelOrder(token, id);
-      load({ silent: true });
+      await adminCancelOrder(token, cancelId, {
+        reason: cancelReason.trim(),
+        note: cancelNote?.trim() || undefined,
+      });
+      setCancelOpen(false);
+      setCancelId(null);
+      setCancelReason("");
+      setCancelNote("");
+      showToast(`ยกเลิกออเดอร์ #${cancelId} สำเร็จ`, "success");
+      load();
     } catch (e) {
       console.error(e);
-      alert(e?.response?.data?.message || "ยกเลิกไม่สำเร็จ");
+      showToast(e?.response?.data?.message || "ยกเลิกไม่สำเร็จ", "error", 3500);
     }
   };
 
-  const onDelete = async (id) => {
-    if (!confirm("ยืนยันลบออเดอร์นี้? (หากยังไม่ยกเลิก ระบบจะคืนสต็อกก่อนลบ)")) return;
-    try {
-      await adminDeleteOrder(token, id);
-      load({ silent: true });
-    } catch (e) {
-      console.error(e);
-      alert(e?.response?.data?.message || "ลบไม่สำเร็จ");
-    }
-  };
-
-  // ====== Auto Refresh: Polling ทุก POLL_MS ======
-  useEffect(() => {
-    if (!token || !autoRefresh) return;
-    const id = setInterval(() => {
-      load({ silent: true });
-    }, POLL_MS);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, autoRefresh, page, pageSize, status, q]);
-
-  // ====== รีโหลดเมื่อกลับมาโฟกัสแท็บ/หน้าต่าง ======
-  useEffect(() => {
-    const onFocus = () => load({ silent: true });
-    const onVis = () => { if (!document.hidden) load({ silent: true }); };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, page, pageSize, status, q]);
-
+  // ---------- Render ----------
   return (
     <div className="max-w-7xl mx-auto p-6">
-      {/* Filters */}
+      {/* Toast */}
+      {toast.open && (
+        <div className="fixed top-4 left-0 right-0 z-[9999] flex justify-center pointer-events-none">
+          <div
+            className={[
+              "pointer-events-auto flex items-center gap-2 rounded-xl px-4 py-3 shadow-lg ring-1",
+              toast.type === "success" &&
+              "bg-emerald-50 text-emerald-700 ring-emerald-200",
+              toast.type === "error" &&
+              "bg-red-50 text-red-700 ring-red-200",
+              toast.type === "info" && "bg-blue-50 text-blue-700 ring-blue-200",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            role="status"
+            aria-live="polite"
+          >
+            {toast.type === "success" && (
+              <CheckCircle className="h-5 w-5 shrink-0" />
+            )}
+            {toast.type === "error" && <XCircle className="h-5 w-5 shrink-0" />}
+            <span className="text-sm">{toast.msg}</span>
+            <button
+              onClick={() => setToast((t) => ({ ...t, open: false }))}
+              className="ml-2 text-xs opacity-70 hover:opacity-100"
+              aria-label="ปิดการแจ้งเตือน"
+            >
+              ปิด
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Header + Filters */}
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-4">
         <h1 className="text-2xl font-bold">คำสั่งซื้อทั้งหมด</h1>
-
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          {/* Search */}
+          {/* Search (client) */}
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
-                className="pl-9 pr-3 py-2 w-64 border rounded-lg"
-                placeholder="ค้นหา: ออเดอร์/เบอร์/อีเมล"
+                className="pl-9 pr-3 py-2 w-72 border rounded-lg"
+                placeholder="พิมพ์เพื่อค้นหา: #ออเดอร์/ชื่อ/อีเมล/เบอร์/สินค้า"
                 value={q}
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && onSearchClick()}
+                onChange={(e) => {
+                  setQ(e.target.value);
+                  setPage(1);
+                }}
               />
             </div>
             <button
-              onClick={onSearchClick}
+              onClick={() => setQ("")}
               className="px-3 py-2 rounded-lg border hover:bg-gray-50"
-              title="ค้นหา"
+              title="ล้างคำค้น"
             >
-              ค้นหา
+              ล้าง
             </button>
           </div>
 
-          {/* Status */}
+          {/* Status (client) */}
           <select
             className="border rounded-lg px-3 py-2"
             value={status}
@@ -296,58 +390,62 @@ const StatusOrder = () => {
             <option value="ยกเลิก">ยกเลิก</option>
           </select>
 
-          {/* Date filter (client-side) */}
+          {/* Date filter (client, วันไทย) */}
           <div className="flex items-center gap-2">
             <input
               type="date"
               className="border rounded-lg px-3 py-2"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              title={FILTER_THAI_DAYS ? "วันที่เริ่ม (วันไทย)" : "วันที่เริ่ม (UTC)"}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setPage(1);
+              }}
+              title="วันที่เริ่ม (วันไทย)"
             />
             <span className="text-gray-500">ถึง</span>
             <input
               type="date"
               className="border rounded-lg px-3 py-2"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              title={FILTER_THAI_DAYS ? "วันที่สิ้นสุด (วันไทย)" : "วันที่สิ้นสุด (UTC)"}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setPage(1);
+              }}
+              title="วันที่สิ้นสุด (วันไทย)"
             />
           </div>
 
-          {/* Refresh */}
+          {/* Refresh (รีโหลดจาก server ครั้งเดียว) */}
           <button
-            onClick={() => {
-              setPage(1);
-              load();
-            }}
+            onClick={() => load()}
             className="px-3 py-2 rounded-lg border hover:bg-gray-50"
             title="รีเฟรช"
           >
-            <RotateCw className="h-4 w-4 inline mr-1" />
-            รีเฟรช
+            <RotateCw className="h-4 w-4 inline mr-1" /> รีเฟรช
           </button>
         </div>
       </div>
 
-      {/* Bulk Toolbar */}
+      {/* Bulk toolbar */}
       <div className="flex items-center justify-between mb-2">
         <div className="text-sm text-gray-600">
           เลือกแล้ว <b>{selected.length}</b> รายการ{" "}
-          {selected.length > 0 && `(${selectedReadyIds.length} ที่อยู่ในสถานะ 'รับออเดอร์เสร็จสิ้น')`}
+          {selected.length > 0 &&
+            `(${selectedReadyIds.length} รายการที่อยู่สถานะ 'รับออเดอร์เสร็จสิ้น')`}
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => selectedReadyIds.length > 0 && setPickupOpen(true)}
+            onClick={() =>
+              selectedReadyIds.length > 0 && setPickupOpen(true)
+            }
             disabled={selectedReadyIds.length === 0}
             className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg ring-1 ${selectedReadyIds.length === 0
               ? "bg-gray-100 text-gray-400 ring-gray-200 cursor-not-allowed"
               : "bg-blue-50 text-blue-700 ring-blue-200 hover:bg-blue-100"
               }`}
-            title="ส่งสถานที่นัดรับให้หลายคำสั่งซื้อ"
+            title="ส่งสถานที่นัดรับ (หลายคำสั่งซื้อ)"
           >
-            <MapPin className="h-4 w-4" />
-            ส่งสถานที่นัดรับ
+            <MapPin className="h-4 w-4" /> ส่งสถานที่นัดรับ
           </button>
         </div>
       </div>
@@ -392,6 +490,16 @@ const StatusOrder = () => {
                   ) || 0;
                 const checked = selected.includes(od.id);
                 const canSelect = od.orderStatus === "รับออเดอร์เสร็จสิ้น";
+
+                // สไตล์ปุ่มยกเลิก (active/disabled)
+                const cancelDisabled = od.orderStatus === "คำสั่งซื้อสำเร็จ";
+                const cancelBtnClass = [
+                  "inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg shrink-0 whitespace-nowrap",
+                  cancelDisabled
+                    ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                    : "bg-red-100 text-red-700 hover:bg-red-200",
+                ].join(" ");
+
                 return (
                   <tr key={od.id} className="border-t">
                     <td className="px-4 py-3">
@@ -407,126 +515,154 @@ const StatusOrder = () => {
                         }
                       />
                     </td>
+
                     <td className="px-4 py-3">
                       <div className="font-semibold">#{od.id}</div>
                       <div className="text-xs text-gray-500">
-                        {fmtUTC(od.createdAt)}
+                        {fmtTH(od.createdAt)}
                       </div>
                     </td>
+
                     <td className="px-4 py-3">
                       <div className="font-medium">
                         {od.orderBuy?.first_name} {od.orderBuy?.last_name}
                       </div>
-                      <div className="text-xs text-gray-500">{od.orderBuy?.email}</div>
-                      <div className="text-xs text-gray-500">{od.orderBuy?.phone}</div>
+                      <div className="text-xs text-gray-500">
+                        {od.orderBuy?.email}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {od.orderBuy?.phone}
+                      </div>
                     </td>
 
-                    {/* สินค้า: แสดง 2 รายการแรก และกดเพื่อขยาย/ย่อ */}
                     <td className="px-4 py-3">
-                      {(() => {
-                        const all = od.products || [];
-                        const isOpen = expanded.has(od.id);
-                        const show = isOpen ? all : all.slice(0, 2);
-
-                        return (
-                          <div className="space-y-1">
-                            {show.map((p) => (
-                              <div key={p.id} className="flex items-center gap-2">
-                                {p.variant?.product?.images?.[0]?.url ? (
-                                  <img
-                                    src={p.variant.product.images[0].url}
-                                    className="h-8 w-8 rounded object-cover border"
-                                    alt=""
-                                  />
-                                ) : (
-                                  <div className="h-8 w-8 rounded bg-gray-100 border" />
-                                )}
-                                <div className="truncate">
-                                  <div className="truncate">{p.productTitle}</div>
-                                  <div className="text-xs text-gray-500">
-                                    {p.sizeName}
-                                    {p.generationName ? ` / ${p.generationName}` : ""} × {p.count}
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-
-                            {all.length > 2 && (
-                              <button
-                                type="button"
-                                onClick={() => toggleExpand(od.id)}
-                                className="text-xs text-blue-600 hover:underline"
-                                title={isOpen ? "ย่อรายการ" : `ดูอีก ${all.length - 2} รายการ`}
-                              >
-                                {isOpen ? "ย่อรายการ" : `+ อีก ${all.length - 2} รายการ`}
-                              </button>
-                            )}
+                      {(od.products || []).slice(0, 3).map((p) => (
+                        <div key={p.id} className="flex items-center gap-2">
+                          {p.variant?.product?.images?.[0]?.url ? (
+                            <img
+                              src={p.variant.product.images[0].url}
+                              className="h-8 w-8 rounded object-cover border"
+                              alt=""
+                            />
+                          ) : (
+                            <div className="h-8 w-8 rounded bg-gray-100 border" />
+                          )}
+                          <div className="truncate">
+                            <div className="truncate">{p.productTitle}</div>
+                            <div className="text-xs text-gray-500">
+                              {p.sizeName}
+                              {p.generationName ? ` / ${p.generationName}` : ""}{" "}
+                              × {p.count}
+                            </div>
                           </div>
-                        );
-                      })()}
+                        </div>
+                      ))}
+                      {(od.products || []).length > 3 && (
+                        <div className="text-xs text-gray-400 mt-1">
+                          + อีก {(od.products || []).length - 3} รายการ
+                        </div>
+                      )}
                     </td>
 
                     <td className="px-4 py-3 text-right font-semibold">
                       {total.toLocaleString()}
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      <span
-                        className={`px-2.5 py-1 rounded-full text-xs font-medium ${pill(
-                          od.orderStatus
-                        )}`}
-                      >
-                        {od.orderStatus}
-                      </span>
+
+                    <td className="px-4 py-3 align-middle">
+                      <div className="flex justify-center">
+                        <span
+                          className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-medium ${pill(
+                            od.orderStatus
+                          )}`}
+                          aria-label={`สถานะคำสั่งซื้อ: ${od.orderStatus}`}
+                        >
+                          {od.orderStatus}
+                        </span>
+                      </div>
                     </td>
 
-                    {/* ปุ่มดูรายละเอียดนัดรับ (ปุ่มเดียว ไม่มีปุ่มซ้อน) */}
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-center align-middle">
                       {(od.pickupPlace || od.pickupAt || od.pickupNote) && (
                         <button
                           type="button"
-                          onClick={() => setViewPickup({ open: true, order: od })}
-                          className="relative z-10 mt-0 w-full text-left text-xs rounded-lg bg-blue-50 text-blue-800 ring-1 ring-blue-200 p-1.5 hover:bg-blue-100 focus:outline-none pointer-events-auto"
+                          onClick={() =>
+                            setViewPickup({ open: true, order: od })
+                          }
+                          className="inline-flex items-center justify-center mx-auto rounded-lg bg-blue-50 text-blue-800 ring-1 ring-blue-200 px-3 py-2 hover:bg-blue-100 focus:outline-none"
                           title="กดเพื่อดูรายละเอียดสถานที่นัดรับ"
                         >
-                          <div className="flex items-center mb-0.5">
-                            <span className="ml-auto inline-flex items-center gap-1 leading-none select-none">
-                              <Eye className="h-3 w-3 shrink-0" />
-                              <span className="text-[10px]">ดูรายละเอียด</span>
-                            </span>
-                          </div>
+                          <Eye className="h-4 w-4 mr-1 shrink-0" />
+                          <span className="text-xs leading-none select-none">
+                            ดูรายละเอียด
+                          </span>
                         </button>
                       )}
                     </td>
 
-                    <td className="px-4 py-3 text-right">
-                      <div className="inline-flex gap-2">
+                    {/* ==== คอลัมน์จัดการ: layout คงที่ทุกแถว ==== */}
+                    <td className="px-4 py-3 text-right align-middle min-w-[300px]">
+                      <div className="flex items-center justify-end gap-3">
+                        {/* Select: ความกว้าง/สูงคงที่เสมอ */}
                         <select
-                          className="border rounded-lg px-2 py-1 text-sm"
+                          className={`w-44 h-9 border rounded-lg px-2 text-sm shrink-0 ${od.orderStatus === "ยกเลิก" ? "opacity-60 cursor-not-allowed" : ""
+                            }`}
                           value={od.orderStatus}
+                          disabled={od.orderStatus === "ยกเลิก"} // แถวที่ยกเลิกแล้ว lock ไว้
                           onChange={(e) => onQuickStatus(od.id, e.target.value)}
+                          title={
+                            od.orderStatus === "ยกเลิก"
+                              ? "คำสั่งซื้อถูกยกเลิกแล้ว"
+                              : "เปลี่ยนสถานะ"
+                          }
                         >
+                          {/* ให้ UI ตรงกับค่าเสมอ: ถ้าเป็น 'ยกเลิก' ให้มี option นี้ให้แสดงผล */}
+                          {od.orderStatus === "ยกเลิก" && (
+                            <option value="ยกเลิก" disabled>ยกเลิก</option>
+                          )}
                           <option value="กำลังรับออเดอร์">กำลังรับออเดอร์</option>
                           <option value="รับออเดอร์เสร็จสิ้น">รับออเดอร์เสร็จสิ้น</option>
                           <option value="คำสั่งซื้อสำเร็จ">คำสั่งซื้อสำเร็จ</option>
                         </select>
 
-                        <button
-                          onClick={() => onCancel(od.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
-                          title="ยกเลิกออเดอร์"
-                        >
-                          <XCircle className="h-4 w-4" /> ยกเลิก
-                        </button>
-
-                        <button
-                          onClick={() => onDelete(od.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-100 text-red-600 hover:bg-red-200"
-                          title="ลบออเดอร์"
-                        >
-                          <Trash2 className="h-4 w-4" /> ลบ
-                        </button>
+                        {/* ปุ่มด้านขวา: ขนาดคงที่เสมอ */}
+                        {od.orderStatus === "ยกเลิก" ? (
+                          // แถวที่ถูกยกเลิกแล้ว -> ปุ่ม "แก้ไข"
+                          <button
+                            onClick={() => {
+                              setEditCancelId(od.id);
+                              setEditReason(od.cancelReason || "");
+                              setEditNote(od.cancelNote || "");
+                              setEditCancelOpen(true);
+                            }}
+                            className="h-9 min-w-[84px] inline-flex items-center justify-center gap-1 px-3 rounded-lg bg-red-100 text-red-700 hover:bg-red-200"
+                            title="แก้ไขเหตุผล/หมายเหตุการยกเลิก"
+                          >
+                            แก้ไข
+                          </button>
+                        ) : (
+                          // แถวอื่น ๆ -> ปุ่ม "ยกเลิก" (ถ้า 'คำสั่งซื้อสำเร็จ' ก็ disabled แต่ยังคงที่)
+                          <button
+                            onClick={() => {
+                              if (od.orderStatus !== "คำสั่งซื้อสำเร็จ") onCancel(od.id);
+                            }}
+                            disabled={od.orderStatus === "คำสั่งซื้อสำเร็จ"}
+                            className={`h-9 min-w-[84px] inline-flex items-center justify-center gap-1 px-3 rounded-lg ${od.orderStatus === "คำสั่งซื้อสำเร็จ"
+                                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                : "bg-red-100 text-red-700 hover:bg-red-200"
+                              }`}
+                            title={
+                              od.orderStatus === "คำสั่งซื้อสำเร็จ"
+                                ? "ออเดอร์สำเร็จแล้ว ไม่สามารถยกเลิกได้"
+                                : "ยกเลิกออเดอร์"
+                            }
+                          >
+                            <XCircle className="h-4 w-4" />
+                            ยกเลิก
+                          </button>
+                        )}
                       </div>
                     </td>
+
                   </tr>
                 );
               })}
@@ -535,30 +671,30 @@ const StatusOrder = () => {
         </div>
       )}
 
-      {/* Pagination (server) */}
-      {meta.totalPages > 1 && (
+      {/* Pagination (client-side) */}
+      {totalPages > 1 && (
         <div className="flex items-center justify-end gap-2 mt-4">
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             className="px-3 py-1.5 rounded-lg border hover:bg-gray-50"
-            disabled={page <= 1}
+            disabled={pageSafe <= 1}
           >
             ก่อนหน้า
           </button>
           <div className="text-sm text-gray-600">
-            หน้า {page} / {meta.totalPages} (ทั้งหมด {meta.total.toLocaleString()} รายการ)
+            หน้า {pageSafe} / {totalPages} (ทั้งหมด {total.toLocaleString()} รายการ)
           </div>
           <button
-            onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             className="px-3 py-1.5 rounded-lg border hover:bg-gray-50"
-            disabled={page >= meta.totalPages}
+            disabled={pageSafe >= totalPages}
           >
             ถัดไป
           </button>
         </div>
       )}
 
-      {/* Modal: ส่งสถานที่นัดรับ */}
+      {/* Modal: ส่งสถานที่นัดรับ (bulk) */}
       {pickupOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
@@ -578,7 +714,7 @@ const StatusOrder = () => {
                 <input
                   value={place}
                   onChange={(e) => setPlace(e.target.value)}
-                  placeholder="เช่น หน้าร้านสาขา… / จุดนัด…"
+                  placeholder="เช่น หน้าร้าน… / จุดนัด…"
                   className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
                 />
               </div>
@@ -614,7 +750,7 @@ const StatusOrder = () => {
             </div>
             <div className="p-5 border-t flex items-center justify-end gap-2">
               <button
-                onClick={closePickup}
+                onClick={() => setPickupOpen(false)}
                 className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700"
               >
                 ยกเลิก
@@ -640,8 +776,7 @@ const StatusOrder = () => {
           <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
             <div className="p-5 border-b flex items-center justify-between">
               <div className="font-semibold flex items-center gap-2">
-                <MapPin className="h-5 w-5" />
-                รายละเอียดสถานที่นัดรับ
+                <MapPin className="h-5 w-5" /> รายละเอียดสถานที่นัดรับ
               </div>
               <button
                 onClick={() => setViewPickup({ open: false, order: null })}
@@ -660,8 +795,10 @@ const StatusOrder = () => {
                 <b>สถานที่:</b> {viewPickup.order.pickupPlace || "-"}
               </div>
               <div>
-                <b>เวลา (UTC):</b>{" "}
-                {viewPickup.order.pickupAt ? fmtUTC(viewPickup.order.pickupAt) : "-"}
+                <b>เวลา (เวลาไทย):</b>{" "}
+                {viewPickup.order.pickupAt
+                  ? fmtTH(viewPickup.order.pickupAt)
+                  : "-"}
               </div>
               <div>
                 <b>หมายเหตุ:</b> {viewPickup.order.pickupNote || "-"}
@@ -675,7 +812,7 @@ const StatusOrder = () => {
                   const text = [
                     `Order: #${o.id}`,
                     `สถานที่: ${o.pickupPlace || "-"}`,
-                    `เวลา(UTC): ${o.pickupAt ? fmtUTC(o.pickupAt) : "-"}`,
+                    `เวลา(เวลาไทย): ${o.pickupAt ? fmtTH(o.pickupAt) : "-"}`,
                     `หมายเหตุ: ${o.pickupNote || "-"}`,
                   ].join("\n");
                   navigator.clipboard.writeText(text);
@@ -690,10 +827,11 @@ const StatusOrder = () => {
                 onClick={() => {
                   const o = viewPickup.order;
                   setPlace(o.pickupPlace || "");
-                  setWhen(isoToLocalInput(o.pickupAt)); // เปิดแก้ไขโดยพรีฟิลด์
+                  setWhen(isoToLocalInput(o.pickupAt));
                   setNote(o.pickupNote || "");
-                  // แก้เฉพาะออเดอร์นี้ (ถ้าสถานะอนุญาต)
-                  setSelected(o.orderStatus === "รับออเดอร์เสร็จสิ้น" ? [o.id] : []);
+                  setSelected(
+                    o.orderStatus === "รับออเดอร์เสร็จสิ้น" ? [o.id] : []
+                  );
                   setPickupOpen(true);
                   setViewPickup({ open: false, order: null });
                 }}
@@ -708,6 +846,215 @@ const StatusOrder = () => {
               >
                 ปิด
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: ยกเลิกออเดอร์ (ครั้งแรก) */}
+      {cancelOpen && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+            <div className="p-5 border-b flex items-center justify-between">
+              <div className="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <XCircle className="h-5 w-5 text-red-600" /> ยกเลิกออเดอร์
+              </div>
+              <button
+                onClick={() => setCancelOpen(false)}
+                className="text-gray-500 hover:text-gray-700"
+                aria-label="ปิด"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="text-sm text-gray-600">
+                ยืนยันการยกเลิกออเดอร์ <b>#{cancelId}</b> หรือไม่? <br />
+                ระบบจะคืนสต็อกสินค้าโดยอัตโนมัติ
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  เลือกสาเหตุการยกเลิก *
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {COMMON_REASONS.map((r) => {
+                    const active = cancelReason === r;
+                    return (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setCancelReason(r)}
+                        className={`px-3 py-1.5 rounded-full text-sm border transition ${active
+                          ? "bg-red-50 text-red-700 border-red-200"
+                          : "bg-white text-gray-700 hover:bg-gray-50"
+                          }`}
+                      >
+                        {r}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  หรือพิมพ์สาเหตุเอง *
+                </label>
+                <input
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="เช่น ลูกค้าขอเลื่อน / ที่อยู่จัดส่งไม่ถูกต้อง / ..."
+                  className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  หมายเหตุเพิ่มเติม (ถ้ามี)
+                </label>
+                <textarea
+                  value={cancelNote}
+                  onChange={(e) => setCancelNote(e.target.value.slice(0, 300))}
+                  rows={3}
+                  placeholder="รายละเอียดประกอบ เช่น ช่องทางติดต่อกลับ เหตุผลแบบยาว ฯลฯ"
+                  className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                />
+                <div className="text-xs text-gray-400 mt-1">
+                  เหลือ {300 - (cancelNote?.length || 0)} อักขระ
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 border-t flex items-center justify-end gap-2">
+              <button
+                onClick={() => setCancelOpen(false)}
+                className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700"
+              >
+                ปิด
+              </button>
+              <button
+                onClick={sendCancel}
+                disabled={!cancelReason.trim()}
+                className={`px-4 py-2 rounded-lg text-white inline-flex items-center gap-2 ${!cancelReason.trim()
+                  ? "bg-red-300 cursor-not-allowed"
+                  : "bg-red-600 hover:bg-red-700"
+                  }`}
+              >
+                <XCircle className="h-4 w-4" /> ยืนยันยกเลิก
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: แก้ไขเหตุผล/หมายเหตุการยกเลิก (หลังยกเลิกแล้ว) */}
+      {editCancelOpen && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+            <div className="p-5 border-b flex items-center justify-between">
+              <div className="text-lg font-semibold tracking-tight">
+                แก้ไขเหตุผลการยกเลิก
+              </div>
+              <button
+                onClick={() => setEditCancelOpen(false)}
+                className="text-gray-500 hover:text-gray-700"
+                aria-label="ปิด"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="text-sm text-gray-600">
+                Order: <b>#{editCancelId}</b>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  เหตุผล *
+                </label>
+                <input
+                  value={editReason}
+                  onChange={(e) => setEditReason(e.target.value)}
+                  placeholder="เช่น ลูกค้ายกเลิกเอง / ชำระเงินไม่สำเร็จ / ..."
+                  className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  หมายเหตุเพิ่มเติม (ถ้ามี)
+                </label>
+                <textarea
+                  value={editNote}
+                  onChange={(e) => setEditNote(e.target.value.slice(0, 300))}
+                  rows={3}
+                  placeholder="รายละเอียดประกอบ เช่น เบอร์ติดต่อกลับ เหตุผลแบบยาว ฯลฯ"
+                  className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                />
+                <div className="text-xs text-gray-400 mt-1">
+                  เหลือ {300 - (editNote?.length || 0)} อักขระ
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <button
+                  className="text-xs text-gray-500 hover:underline"
+                  onClick={async () => {
+                    if (!window.confirm("ยืนยันล้างเหตุผลและหมายเหตุของคำสั่งซื้อนี้?"))
+                      return;
+                    try {
+                      await adminUpdateCancelInfo(token, editCancelId, {
+                        clear: true,
+                      });
+                      setEditCancelOpen(false);
+                      setEditCancelId(null);
+                      setEditReason("");
+                      setEditNote("");
+                      load();
+                    } catch (e) {
+                      console.error(e);
+                      alert(e?.response?.data?.message || "ล้างไม่สำเร็จ");
+                    }
+                  }}
+                >
+                  ล้างเหตุผล/หมายเหตุ
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditCancelOpen(false)}
+                    className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700"
+                  >
+                    ปิด
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!editReason.trim()) {
+                        alert("กรุณากรอกเหตุผล");
+                        return;
+                      }
+                      try {
+                        await adminUpdateCancelInfo(token, editCancelId, {
+                          reason: editReason.trim(),
+                          note: editNote?.trim() || undefined,
+                        });
+                        setEditCancelOpen(false);
+                        setEditCancelId(null);
+                        setEditReason("");
+                        setEditNote("");
+                        load();
+                      } catch (e) {
+                        console.error(e);
+                        alert(e?.response?.data?.message || "บันทึกไม่สำเร็จ");
+                      }
+                    }}
+                    className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    บันทึก
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
