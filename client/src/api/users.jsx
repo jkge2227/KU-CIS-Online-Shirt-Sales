@@ -2,7 +2,7 @@
 import axios from "axios";
 
 // ใช้ BASE URL เดียวกันทั้งไฟล์ (แก้ได้ด้วย VITE_API_URL)
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5001/api";
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5002/api";
 
 const api = axios.create({
   baseURL: API_BASE,

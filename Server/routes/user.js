@@ -7,31 +7,31 @@ const { listUsers, changeStatus, changeRole, userCart,
   getOrderHistory,
   changePassword,
   profile,
-  updateprofile, 
+  updateprofile,
   requestPasswordOtp,
   verifyResetOtp,
-  resetPasswordWithOtp} = require('../controllers/user')
+  resetPasswordWithOtp,
+  getMyStatus } = require('../controllers/user')
 const { cancelExpiredOrdersJob } = require('../controllers/product')
+const { enabledRequired } = require('../middlewares/enabledRequired')
 
 
 router.get('/user', authCheck, adminCheck, listUsers)
-router.post('/change-status', authCheck, adminCheck, changeStatus)
-router.post('/change-role', authCheck, adminCheck, changeRole)
+router.post('/change-status', authCheck, enabledRequired, adminCheck, changeStatus)
+router.post('/change-role', authCheck, enabledRequired, adminCheck, changeRole)
 
-router.post('/user/cart', authCheck, userCart)
+router.post('/user/cart', authCheck, enabledRequired, userCart)
 router.get('/user/cart', authCheck, getUserCart)
-router.delete('/user/cart', authCheck, emptyCart)
+router.delete('/user/cart', authCheck, enabledRequired, emptyCart)
 
-router.post('/user/address', authCheck, saveAddress)
-
-router.post('/user/order', authCheck, saveOrder)
+router.post('/user/order', authCheck, enabledRequired, saveOrder)
 
 router.get('/user/order', authCheck, getOrder)
 
 router.put('/orders/:id/cancel', authCheck, cancelMyOrder);
 router.delete('/orders/:id', authCheck, cancelAndDeleteMyOrder);
 
-router.post('/orders/cancel-expired', authCheck, adminCheck, async (req, res) => {
+router.post('/orders/cancel-expired', authCheck, enabledRequired, adminCheck, async (req, res) => {
   try {
     const days = Number(req.body?.days || 3);
     const result = await cancelExpiredOrdersJob(days);
@@ -45,12 +45,13 @@ router.post('/orders/cancel-expired', authCheck, adminCheck, async (req, res) =>
 router.get('/user/order-history', authCheck, getOrderHistory)
 
 router.get('/profile', authCheck, profile)                  // ดึงโปรไฟล์ตัวเอง
-router.put('/upprofile', authCheck, updateprofile)            // แก้ไขโปรไฟล์
-router.put('/me/password', authCheck, changePassword) // เปลี่ยนรหัสผ่าน
+router.put('/upprofile', authCheck, enabledRequired, updateprofile)            // แก้ไขโปรไฟล์
+router.put('/me/password', authCheck, enabledRequired, changePassword) // เปลี่ยนรหัสผ่าน
 
 router.post('/forgot-password-otp', requestPasswordOtp);
 router.post('/verify-reset-otp', verifyResetOtp);
 router.post('/reset-password-otp', resetPasswordWithOtp);
 
+router.get('/me/status', authCheck, getMyStatus);
 
 module.exports = router

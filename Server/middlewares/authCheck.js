@@ -1,47 +1,43 @@
+// Server/middlewares/authCheck.js
 const jwt = require('jsonwebtoken')
 const prisma = require('../config/prisma')
 
 exports.authCheck = async (req, res, next) => {
     try {
-
-        const handerToken = req.headers.authorization
-        if (!handerToken) {
-            return res.status(400).json({ message: " No token , Authorization" })
+        const header = req.headers.authorization || ''
+        if (!header.toLowerCase().startsWith('bearer ')) {
+            return res.status(401).json({ message: 'Unauthorized' })
         }
-        const token = handerToken.split(" ")[1]
-        const decode = jwt.verify(token, process.env.SECRET)
-        req.user = decode
+        const token = header.split(' ')[1]
+        const payload = jwt.verify(token, process.env.SECRET)
 
+        // แนะนำให้มี id ใน payload จะชัวร์กว่า email
         const user = await prisma.users.findFirst({
-            where: {
-                email: req.user.email
-            }
+            where: { email: payload.email },
+            select: { id: true, email: true, role: true, enabled: true }
         })
-        if (!user.enabled) {
-            return res.status(400).json({ message: "this account cannot access" })
-        }
+        if (!user) return res.status(401).json({ message: 'Unauthorized' })
 
+        // ❌ อย่าบล็อกตรงนี้
+        // if (!user.enabled) { return res.status(403).json({ message: 'this account cannot access' }) }
+
+        req.user = user
         next()
     } catch (err) {
         console.log(err)
-        res.status(500).json({ message: "token invalid" })
+        res.status(401).json({ message: 'token invalid' })
     }
 }
 
 exports.adminCheck = async (req, res, next) => {
     try {
-        const { email } = req.user
-        const amdinUser = await prisma.users.findFirst({
-            where: { email: email }
-        })
-        if (!amdinUser || amdinUser.role !== 'admin') {
-            return res.status(400).json({ message: 'Acess Denied: Admin Only' })
+        // ใช้ข้อมูลจาก req.user ที่ authCheck เติมไว้แล้ว
+        if (!req.user || String(req.user.role).toLowerCase() !== 'admin') {
+            return res.status(403).json({ message: 'Access Denied: Admin Only' })
         }
-
-        // console.log('admin Check', amdinUser)
         next()
     } catch (err) {
         console.log(err)
-        res.status(500).json({ message: "Error Admin access denid " })
+        res.status(500).json({ message: 'Error Admin access denied' })
     }
 }

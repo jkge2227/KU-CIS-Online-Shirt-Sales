@@ -24,15 +24,15 @@ import axios from "axios";
  * Add simple update functions to mirror your controller's PUT /:id
  */
 const updateCategory = (token, id, form) =>
-  axios.put(`http://localhost:5001/api/category/${id}`, form, {
+  axios.put(`http://localhost:5002/api/category/${id}`, form, {
     headers: { Authorization: `Bearer ${token}` },
   });
 const updateSize = (token, id, form) =>
-  axios.put(`http://localhost:5001/api/size/${id}`, form, {
+  axios.put(`http://localhost:5002/api/size/${id}`, form, {
     headers: { Authorization: `Bearer ${token}` },
   });
 const updateGeneration = (token, id, form) =>
-  axios.put(`http://localhost:5001/api/generation/${id}`, form, {
+  axios.put(`http://localhost:5002/api/generation/${id}`, form, {
     headers: { Authorization: `Bearer ${token}` },
   });
 

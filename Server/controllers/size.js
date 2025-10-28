@@ -102,7 +102,7 @@ exports.remove = async (req, res) => {
     // กันลบ size ที่ยังถูกใช้อยู่ใน variant
     const inUse = await prisma.productVariant.count({ where: { sizeId: id } });
     if (inUse > 0) {
-      return res.status(409).json({ message: 'Cannot delete: size is in use by some variants' });
+      return res.status(409).json({ message: 'ไม่สามารถลบได้ เพราะไซซ์นี้ถูกใช้กับสินค้าอยู่' });
     }
 
     const deleted = await prisma.size.delete({ where: { id } });

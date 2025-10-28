@@ -55,7 +55,7 @@ const MainNav = () => {
                 <div className="h-14 flex items-center justify-between">
                     {/* Left */}
                     <div className="flex items-center gap-3">
-                        <div className="hidden md:flex items-center gap-1">
+                        <div className="md:p-28 items-center gap-4">
                             <NavItem to="/shop">รายการสินค้า</NavItem>
                             <NavItem to="/order">คำสั่งซื้อ</NavItem>
                             <NavItem to="/history">ประวัติการซื้อ</NavItem>

@@ -12,6 +12,7 @@ import {
     UserRoundPen,
     ShoppingCart,
     Store,
+    Settings2,
 } from 'lucide-react'
 
 const navItemClasses = (isActive) =>
@@ -92,12 +93,17 @@ const SidebarAdmin = () => {
                 </NavLink>
                 <NavLink to="product" className={({ isActive }) => navItemClasses(isActive)}>
                     <Package className="shrink-0" />
-                    <Label show={!collapsed}>สินค้า</Label>
+                    <Label show={!collapsed}>จัดการสินค้า</Label>
                 </NavLink>
 
                 <NavLink to="/shop" className={({ isActive }) => navItemClasses(isActive)}>
                     <Store className="shrink-0" />
                     <Label show={!collapsed}>สั่งซื้อหน้าร้าน</Label>
+                </NavLink>
+
+                <NavLink to="settings" className={({ isActive }) => navItemClasses(isActive)}>
+                    <Settings2 className="shrink-0" />
+                    <Label show={!collapsed}>จัดการสต็อก</Label>
                 </NavLink>
             </nav>
         </motion.aside>

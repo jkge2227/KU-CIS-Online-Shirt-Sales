@@ -5,9 +5,12 @@ import { readProduct, updateProduct } from "../../api/product";
 import { toast } from "react-toastify";
 import Uploadfile from "./Uploadfile";
 import { useParams, useNavigate } from "react-router-dom";
-import { Plus, X, Package, Layers } from "lucide-react";
+import { Plus, Package, Layers } from "lucide-react";
 
-// --- Chip helpers ---
+// helpers
+const digitsOnly = (s = "") => String(s).replace(/\D/g, "");
+
+// --- Chip ---
 function Chip({ active, children, onClick }) {
     return (
         <button
@@ -25,7 +28,7 @@ function Chip({ active, children, onClick }) {
     );
 }
 
-// --- Variant row (no dropdowns) ---
+// --- Variant row (size/gen แบบปุ่ม, quantity & lowStockThreshold เป็นตัวเลขลบได้หมด) ---
 function VariantRow({ v, sizes, generations, onChange, onRemove, index }) {
     return (
         <div className="flex flex-col gap-3 border-b border-gray-200 py-3 last:border-none">
@@ -38,9 +41,9 @@ function VariantRow({ v, sizes, generations, onChange, onRemove, index }) {
                             key={s.id}
                             type="button"
                             onClick={() => onChange({ ...v, sizeId: s.id })}
-                            className={`rounded-full border px-3 py-1 text-sm transition-all ${v.sizeId === s.id
-                                    ? "bg-gray-700 text-white border-gray-700"
-                                    : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                            className={`rounded-full border px-3 py-1 text-sm transition-all ${String(v.sizeId) === String(s.id)
+                                ? "bg-gray-700 text-white border-gray-700"
+                                : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
                                 }`}
                         >
                             {s.name}
@@ -52,48 +55,59 @@ function VariantRow({ v, sizes, generations, onChange, onRemove, index }) {
                 <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">รุ่น:</span>
                     {generations.length > 0 ? (
-                        <>
-                            {generations.map((g) => (
-                                <button
-                                    key={g.id}
-                                    type="button"
-                                    onClick={() => onChange({ ...v, generationId: g.id })}
-                                    className={`rounded-full border px-3 py-1 text-sm transition-all ${v.generationId === g.id
-                                            ? "bg-gray-700 text-white border-gray-700"
-                                            : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-                                        }`}
-                                >
-                                    {g.name}
-                                </button>
-                            ))}
-                        </>
+                        generations.map((g) => (
+                            <button
+                                key={g.id}
+                                type="button"
+                                onClick={() => onChange({ ...v, generationId: g.id })}
+                                className={`rounded-full border px-3 py-1 text-sm transition-all ${String(v.generationId) === String(g.id)
+                                    ? "bg-gray-700 text-white border-gray-700"
+                                    : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                                    }`}
+                            >
+                                {g.name}
+                            </button>
+                        ))
                     ) : (
                         <span className="text-sm text-gray-500">ไม่มีรุ่นในระบบ</span>
                     )}
                 </div>
 
-                {/* จำนวน */}
+                {/* จำนวน + เกณฑ์เตือนต่ำกว่า */}
                 <div className="flex items-center gap-2 ml-auto">
+                    <span className="text-sm font-medium text-gray-700">จำนวน:</span>
                     <input
-                        type="number"
-                        min="0"
-                        value={v.quantity}
-                        onChange={(e) =>
-                            onChange({
-                                ...v,
-                                quantity: Math.max(0, Number(e.target.value || 0)),
-                            })
-                        }
+                        type="text"
+                        inputMode="numeric"
+                        value={v.quantity ?? ""}
+                        onChange={(e) => onChange({ ...v, quantity: digitsOnly(e.target.value) })}
+                        onBlur={(e) => {
+                            if (e.target.value === "") onChange({ ...v, quantity: "0" });
+                        }}
                         className="w-20 rounded-md border border-gray-300 p-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-700/10"
-                        placeholder="จำนวน"
+                        placeholder="0"
                     />
 
-                    {/* ลบแถว */}
+                    <span className="text-sm font-medium text-gray-700">แจ้งเตือนสต็อกต่ำ:</span>
+                    <input
+                        type="text"
+                        inputMode="numeric"
+                        value={v.lowStockThreshold ?? ""}
+                        onChange={(e) =>
+                            onChange({ ...v, lowStockThreshold: digitsOnly(e.target.value) })
+                        }
+                        onBlur={(e) => {
+                            if (e.target.value === "") onChange({ ...v, lowStockThreshold: null });
+                        }}
+                        className="w-24 rounded-md border border-gray-300 p-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-700/10"
+                        title="ปล่อยว่าง = ใช้ค่าเกณฑ์กลางของระบบ"
+                    />
+
                     <button
                         type="button"
                         onClick={onRemove}
                         className="rounded-md border border-red-200 px-2 py-1 text-sm text-red-600 hover:bg-red-50 transition"
-                        title="ลบแถว"
+                        title={`ลบแถว #${index + 1}`}
                     >
                         ลบ
                     </button>
@@ -102,7 +116,6 @@ function VariantRow({ v, sizes, generations, onChange, onRemove, index }) {
         </div>
     );
 }
-
 
 export default function EditProduct() {
     const { id } = useParams();
@@ -119,8 +132,13 @@ export default function EditProduct() {
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [form, setForm] = useState({
-        title: "", description: "", price: "", quantity: 0,
-        categoryId: "", images: [], variants: []
+        title: "",
+        description: "",
+        price: "", // string เพื่อให้ลบได้หมด
+        quantity: "0", // ไม่ได้ใช้รวม แต่คงไว้
+        categoryId: "",
+        images: [],
+        variants: [], // { sizeId, generationId, quantity:'', sku:'', lowStockThreshold:null|'' }
     });
 
     useEffect(() => {
@@ -132,16 +150,18 @@ export default function EditProduct() {
                 setForm({
                     title: p.title || "",
                     description: p.description || "",
-                    price: p.price || "",
-                    quantity: Math.max(0, p.quantity || 0),
+                    price: String(p.price ?? ""),
+                    quantity: "0",
                     categoryId: p.categoryId || "",
                     images: p.images || [],
-                    variants: (p.variants || []).map(v => ({
+                    variants: (p.variants || []).map((v) => ({
                         sizeId: v.sizeId ?? "",
                         generationId: v.generationId ?? "",
-                        quantity: Math.max(0, v.quantity || 0),
-                        sku: v.sku || ""
-                    }))
+                        quantity: String(Math.max(0, v.quantity || 0)),
+                        sku: v.sku || "",
+                        lowStockThreshold:
+                            v.lowStockThreshold == null ? null : String(Math.max(0, v.lowStockThreshold)),
+                    })),
                 });
             } catch {
                 toast.error("โหลดข้อมูลสินค้าไม่สำเร็จ");
@@ -149,6 +169,7 @@ export default function EditProduct() {
                 setLoading(false);
             }
         })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     const totalStock = useMemo(
@@ -157,11 +178,19 @@ export default function EditProduct() {
     );
 
     const addVariant = () =>
-        setForm(f => ({ ...f, variants: [...f.variants, { sizeId: "", generationId: "", quantity: 0, sku: "" }] }));
+        setForm((f) => ({
+            ...f,
+            variants: [
+                ...f.variants,
+                { sizeId: "", generationId: "", quantity: "0", sku: "", lowStockThreshold: null },
+            ],
+        }));
+
     const updateVariant = (i, nv) =>
-        setForm(f => ({ ...f, variants: f.variants.map((v, idx) => idx === i ? nv : v) }));
+        setForm((f) => ({ ...f, variants: f.variants.map((v, idx) => (idx === i ? nv : v)) }));
+
     const removeVariant = (i) =>
-        setForm(f => ({ ...f, variants: f.variants.filter((_, idx) => idx !== i) }));
+        setForm((f) => ({ ...f, variants: f.variants.filter((_, idx) => idx !== i) }));
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -170,16 +199,21 @@ export default function EditProduct() {
             const payload = {
                 title: form.title.trim(),
                 description: form.description.trim(),
-                price: Number(form.price),
-                quantity: Number(form.quantity),
-                categoryId: Number(form.categoryId),
+                price: Number(form.price || 0),
+                quantity: Number(form.quantity || 0),
+                categoryId: Number(form.categoryId) || null,
                 images: form.images,
-                variants: form.variants.map(v => ({
+                variants: form.variants.map((v) => ({
                     sizeId: Number(v.sizeId),
-                    generationId: v.generationId ? Number(v.generationId) : null,
-                    quantity: Number(v.quantity),
-                    sku: v.sku || null
-                }))
+                    generationId:
+                        v.generationId === "" || v.generationId == null ? null : Number(v.generationId),
+                    quantity: Number(v.quantity || 0),
+                    sku: v.sku || null,
+                    lowStockThreshold:
+                        v.lowStockThreshold === "" || v.lowStockThreshold == null
+                            ? null
+                            : Number(v.lowStockThreshold),
+                })),
             };
             await updateProduct(token, id, payload);
             toast.success("แก้ไขสินค้าเรียบร้อย");
@@ -194,27 +228,28 @@ export default function EditProduct() {
     if (loading) return <div className="mx-auto max-w-5xl p-6 text-gray-500">กำลังโหลด…</div>;
 
     return (
-        <div className="mx-auto max-w-5xl px-4 py-6">
-            {/* Header */}
-            <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
-                    <Package size={18} />
-                </div>
-                <div>
-                    <h1 className="text-xl font-bold text-gray-700">แก้ไขสินค้า</h1>
-                    <p className="text-sm text-gray-500">กำหนดรายละเอียด รูปภาพ และตัวเลือกสินค้า </p>
-                </div>
-            </div>
+        <div className="mx-auto max-w-7xl  p-6">
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-3">
                 {/* ข้อมูลหลัก */}
                 <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                    {/* Header */}
+                    <div className="mb-4 flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
+                            <Package size={18} />
+                        </div>
+                        <div>
+                            <h1 className="text-xl font-bold text-gray-700">แก้ไขสินค้า</h1>
+                            <p className="text-sm text-gray-500">กำหนดรายละเอียด รูปภาพ และตัวเลือกสินค้า </p>
+                        </div>
+                    </div>
                     <div className="grid gap-4 md:grid-cols-2">
                         <div>
                             <label className="text-sm text-gray-700">ชื่อสินค้า</label>
                             <input
-                                name="title" value={form.title}
-                                onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))}
+                                name="title"
+                                value={form.title}
+                                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                                 className="mt-1 w-full rounded-lg border border-gray-300 p-2.5 focus:outline-none focus:ring-2 focus:ring-gray-700/10"
                                 placeholder="ชื่อสินค้า"
                             />
@@ -222,8 +257,9 @@ export default function EditProduct() {
                         <div>
                             <label className="text-sm text-gray-700">รายละเอียด</label>
                             <input
-                                name="description" value={form.description}
-                                onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))}
+                                name="description"
+                                value={form.description}
+                                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                                 className="mt-1 w-full rounded-lg border border-gray-300 p-2.5 focus:outline-none focus:ring-2 focus:ring-gray-700/10"
                                 placeholder="รายละเอียดสินค้า"
                             />
@@ -231,12 +267,14 @@ export default function EditProduct() {
                         <div>
                             <label className="text-sm text-gray-700">ราคา (บาท)</label>
                             <input
-                                type="number" name="price" value={form.price}
-                                onChange={(e) => setForm(f => ({ ...f, price: Math.max(0, Number(e.target.value || 0)) }))}
+                                type="text"
+                                inputMode="numeric"
+                                value={form.price}
+                                onChange={(e) => setForm((f) => ({ ...f, price: digitsOnly(e.target.value) }))}
                                 className="mt-1 w-full rounded-lg border border-gray-300 p-2.5 focus:outline-none focus:ring-2 focus:ring-gray-700/10"
+                                placeholder="เช่น 199"
                             />
                         </div>
-                        
                     </div>
 
                     {/* หมวดหมู่แบบชิป */}
@@ -247,7 +285,7 @@ export default function EditProduct() {
                                 <Chip
                                     key={c.id}
                                     active={String(form.categoryId) === String(c.id)}
-                                    onClick={() => setForm(f => ({ ...f, categoryId: c.id }))}
+                                    onClick={() => setForm((f) => ({ ...f, categoryId: c.id }))}
                                 >
                                     {c.name}
                                 </Chip>
@@ -294,6 +332,15 @@ export default function EditProduct() {
                             </div>
                         )}
                     </div>
+
+                    {form.variants.length > 0 && (
+                        <div className="mt-3 text-xs text-gray-500">
+                            สต็อกรวมจากตัวเลือกทั้งหมด:{" "}
+                            <span className="font-medium text-gray-700">
+                                {totalStock.toLocaleString("th-TH")}
+                            </span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex justify-end">
@@ -309,4 +356,3 @@ export default function EditProduct() {
         </div>
     );
 }
-

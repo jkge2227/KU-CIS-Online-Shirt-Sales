@@ -30,20 +30,45 @@ exports.list = async (req, res) => {
         res.status(500).json({ message: " Server in Error" })
     }
 }
+
 exports.remove = async (req, res) => {
-    try {
-        const { id } = req.params
-        const category = await prisma.category.delete({
-            where: {
-                id: Number(id)
-            }
-        })
-        res.send(category)
-    } catch (err) {
-        console.log(err)
-        res.status(500).json({ message: " Server in Error" })
+  try {
+    const { id } = req.params;
+    const idNum = Number(id);
+    if (!Number.isFinite(idNum)) {
+      return res.status(400).json({ message: 'รหัสหมวดหมู่ไม่ถูกต้อง' });
     }
-}
+
+    // 1) ตรวจว่ามีสินค้าใช้หมวดหมู่นี้อยู่ไหม
+    const inUse = await prisma.product.count({ where: { categoryId: idNum } });
+    if (inUse > 0) {
+      return res
+        .status(409)
+        .json({ message: 'ไม่สามารถลบได้ เพราะหมวดหมู่นี้ถูกใช้กับสินค้าอยู่' });
+    }
+
+    // 2) ลบหมวดหมู่
+    const deleted = await prisma.category.delete({
+      where: { id: idNum },
+    });
+
+    return res.json(deleted);
+  } catch (err) {
+    // กันเคส FK/ไม่พบเรคอร์ด
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === 'P2003') {
+        return res
+          .status(409)
+          .json({ message: 'ไม่สามารถลบได้ เนื่องจากยังมีการอ้างอิงข้อมูลอยู่' });
+      }
+      if (err.code === 'P2025') {
+        return res.status(404).json({ message: 'ไม่พบหมวดหมู่ที่ต้องการลบ' });
+      }
+    }
+    console.error(err);
+    return res.status(500).json({ message: 'Server Error' });
+  }
+};
 
 exports.update = async (req, res) => {
     try {

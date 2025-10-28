@@ -1,4 +1,4 @@
-// client/src/pages/admin/FormProduct.jsx
+// client/src/components/admin/FormProduct.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import useEcomStore from '../../store/ecom-store';
 import { createProduct, deleteProduct } from '../../api/product';
@@ -10,26 +10,28 @@ import { motion, AnimatePresence } from 'framer-motion';
 const initialState = {
   title: '',
   description: '',
-  price: '',
+  price: '',            // string เพื่อให้ลบได้หมด
   quantity: '',
   categoryId: '',
   images: [],
   samePriceAllSizes: true,
-  variants: [], // {sizeId:'', generationId:'', quantity:0, sku:''}
+  variants: [],         // { sizeId, generationId, quantity:'', sku:'', lowStockThreshold:null|'' }
 };
 
-// ---------- UI helpers ----------
+const digitsOnly = (s = '') => String(s).replace(/\D/g, '');
+const normalize = (s = '') => String(s).trim().replace(/\s+/g, ' ').toLowerCase();
+
 function Pill({ active, children, onClick }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={[
-        "whitespace-nowrap rounded-full border px-4 py-1.5 text-sm transition-all",
-        active
-          ? "bg-gray-900 text-white border-gray-900 shadow-sm"
-          : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-      ].join(" ")}
+      className={
+        'whitespace-nowrap rounded-xl border px-4 py-1.5 text-sm transition-all ' +
+        (active
+          ? 'bg-gray-700 text-white border-gray-700 shadow-sm'
+          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400')
+      }
     >
       {children}
     </button>
@@ -41,24 +43,22 @@ function Chip({ active, children, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className={[
-        "rounded-xl border px-3 py-1.5 text-sm transition-all",
-        active
-          ? "bg-gray-900 text-white border-gray-900 shadow-sm"
-          : "bg-white text-gray-700 border-gray-300 hover:border-gray-400",
-      ].join(" ")}
+      className={
+        'rounded-xl border px-3 py-1.5 text-sm transition-all ' +
+        (active
+          ? 'bg-gray-700 text-white border-gray-700 shadow-sm'
+          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400')
+      }
     >
       {children}
     </button>
   );
 }
 
-// ---------- Variant row (แนวนอนยาว) ----------
 function VariantRow({ v, sizes, generations, onChange, onRemove, index }) {
   return (
     <div className="flex flex-col gap-3 border-b border-gray-200 py-3 last:border-none">
       <div className="flex flex-wrap items-center gap-3">
-        {/* Size */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-gray-700">Size:</span>
           {sizes.map((s) => (
@@ -72,7 +72,6 @@ function VariantRow({ v, sizes, generations, onChange, onRemove, index }) {
           ))}
         </div>
 
-        {/* Generation */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-gray-700">รุ่น:</span>
           {generations.map((g) => (
@@ -86,24 +85,34 @@ function VariantRow({ v, sizes, generations, onChange, onRemove, index }) {
           ))}
         </div>
 
-        {/* จำนวน  / ลบ — ชิดขวา */}
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-sm font-medium text-gray-700">จำนวน:</span>
           <input
-            type="number"
-            min="0"
-            value={v.quantity}
-            onChange={(e) =>
-              onChange({ ...v, quantity: Math.max(0, Number(e.target.value || 0)) })
-            }
-            className="w-20 rounded-md border border-gray-300 p-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-            placeholder="จำนวน"
+            type="text"
+            inputMode="numeric"
+            value={v.quantity ?? ''}
+            onChange={(e) => onChange({ ...v, quantity: digitsOnly(e.target.value) })}
+            onBlur={(e) => { if (e.target.value === '') onChange({ ...v, quantity: '0' }); }}
+            className="w-20 rounded-md border border-gray-300 p-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-700/10"
           />
+
+          {/* ใหม่: สต็อกต่ำราย variant (nullable = สืบทอดค่ากลาง) */}
+          <span className="text-sm font-medium text-gray-700">แจ้งเตือนสต็อกต่ำ:</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={v.lowStockThreshold ?? ''} // ค่าว่าง = null
+            onChange={(e) => onChange({ ...v, lowStockThreshold: digitsOnly(e.target.value) })}
+            onBlur={(e) => { if (e.target.value === '') onChange({ ...v, lowStockThreshold: null }); }}
+            className="w-24 rounded-md border border-gray-300 p-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-700/10"
+            title="ปล่อยว่าง = ใช้ค่าเกณฑ์กลางของระบบ"
+          />
+
           <button
             type="button"
             onClick={onRemove}
             className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 transition"
-            title={`ลบแถว #${index + 1}`}
+            title={'ลบแถว #' + (index + 1)}
           >
             ลบ
           </button>
@@ -130,7 +139,7 @@ const FormProduct = () => {
   const [confirmId, setConfirmId] = useState(null);
   const [query, setQuery] = useState('');
   const [error, setError] = useState(null);
-  const [topToast, setTopToast] = useState(null); // { message, type }
+  const [topToast, setTopToast] = useState(null);
 
   useEffect(() => {
     getCategory();
@@ -148,18 +157,17 @@ const FormProduct = () => {
 
   const handleOnChange = (e) => {
     const { name, value } = e.target;
-    if (name === 'price' || name === 'quantity') {
-      const num = Number(value);
-      setForm((f) => ({ ...f, [name]: Number.isFinite(num) ? Math.max(0, num) : '' }));
-    } else {
-      setForm((f) => ({ ...f, [name]: value }));
-    }
+    if (name === 'price' || name === 'quantity') return;
+    setForm((f) => ({ ...f, [name]: value }));
   };
 
   const addVariant = () => {
     setForm((f) => ({
       ...f,
-      variants: [...f.variants, { sizeId: '', generationId: '', quantity: 0, sku: '' }],
+      variants: [
+        ...f.variants,
+        { sizeId: '', generationId: '', quantity: '0', sku: '', lowStockThreshold: null },
+      ],
     }));
   };
 
@@ -186,31 +194,47 @@ const FormProduct = () => {
     const errors = [];
     if (!form.title.trim()) errors.push('กรอกชื่อสินค้า');
     if (!form.description.trim()) errors.push('กรอกรายละเอียด');
-    if (!form.price || Number(form.price) <= 0) errors.push('ราคาต้องมากกว่า 0');
+    if (form.price === '' || Number(form.price) <= 0) errors.push('ราคาต้องมากกว่า 0');
     if (!form.categoryId) errors.push('เลือกหมวดหมู่');
     if (form.variants.length === 0) errors.push('เพิ่มอย่างน้อย 1 size');
 
     const keySet = new Set();
     form.variants.forEach((v, i) => {
-      if (!v.sizeId) errors.push(`เลือกระบุ size แถวที่ ${i + 1}`);
-      if (v.quantity == null || Number(v.quantity) < 0)
-        errors.push(`จำนวนต้อง ≥ 0 ที่แถวที่ ${i + 1}`);
+      if (!v.sizeId) errors.push('เลือกระบุ size แถวที่ ' + (i + 1));
+      if (v.quantity === '' || Number(v.quantity) < 0) errors.push('จำนวนต้อง ≥ 0 ที่แถวที่ ' + (i + 1));
       const genKey = v.generationId === '' || v.generationId == null ? 'null' : String(v.generationId);
-      const key = `${String(v.sizeId)}::${genKey}`;
-      if (keySet.has(key)) errors.push(`ซ้ำ: size/รุ่น แถวที่ ${i + 1}`);
+      const key = String(v.sizeId) + '::' + genKey;
+      if (keySet.has(key)) errors.push('ซ้ำ: size/รุ่น แถวที่ ' + (i + 1));
       keySet.add(key);
     });
     return errors;
   };
 
+  const isDupTitleInCategory = useMemo(() => {
+    if (!form.title || form.categoryId == null || !products?.length) return false;
+    const t = normalize(form.title);
+    return products.some(
+      (p) =>
+        String(p.categoryId ?? '') === String(form.categoryId ?? '') &&
+        normalize(p.title) === t
+    );
+  }, [products, form.title, form.categoryId]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
-    const errs = validate();
-    if (errs.length) {
-      showTopToast(errs[0], 'error', 1800); // โชว์ข้อแรกพอให้เห็นชัด
+
+    if (isDupTitleInCategory) {
+      showTopToast('มีสินค้านี้ในหมวดนี้อยู่แล้ว', 'error', 1800);
       return;
     }
+
+    const errs = validate();
+    if (errs.length) {
+      showTopToast(errs[0], 'error', 1800);
+      return;
+    }
+
     setSubmitting(true);
     try {
       const payload = {
@@ -224,6 +248,8 @@ const FormProduct = () => {
           generationId: v.generationId === '' || v.generationId == null ? null : Number(v.generationId),
           quantity: Number(v.quantity || 0),
           sku: v.sku || null,
+          lowStockThreshold:
+            v.lowStockThreshold === '' || v.lowStockThreshold == null ? null : Number(v.lowStockThreshold),
         })),
       };
 
@@ -231,10 +257,14 @@ const FormProduct = () => {
       setForm(initialState);
       setUploaderKey((k) => k + 1);
       await getProduct(100);
-      showTopToast(`เพิ่มข้อมูล ${res?.data?.title ?? payload.title} สำเร็จ`, 'success');
+      showTopToast('เพิ่มข้อมูล ' + (res?.data?.title ?? payload.title) + ' สำเร็จ', 'success');
     } catch (err) {
       console.error(err);
-      const msg = err?.response?.data?.message || 'บันทึกไม่สำเร็จ';
+      const status = err?.response?.status;
+      const msg =
+        status === 409
+          ? err?.response?.data?.message || 'ข้อมูลซ้ำ'
+          : err?.response?.data?.message || 'บันทึกไม่สำเร็จ';
       setError(msg);
       showTopToast(msg, 'error', 1800);
     } finally {
@@ -258,7 +288,6 @@ const FormProduct = () => {
     }
   };
 
-  // Sort latest + search
   const sortDesc = (a, b) => {
     const da = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
     const db = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -271,15 +300,16 @@ const FormProduct = () => {
     const q = query.trim().toLowerCase();
     if (!q) return base;
     return base.filter((p) =>
-      [p.title, p.description, p.category?.name].filter(Boolean).some((txt) => String(txt).toLowerCase().includes(q))
+      [p.title, p.description, p.category?.name]
+        .filter(Boolean)
+        .some((txt) => String(txt).toLowerCase().includes(q))
     );
   }, [products, query]);
 
   const nfmt = new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' });
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      {/* Header Card */}
+    <div className="max-w-7xl mx-auto p-6">
       <div className="bg-white/80 backdrop-blur shadow-xl rounded-2xl border border-gray-100 mb-6">
         <div className="px-6 pt-6 pb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -287,13 +317,12 @@ const FormProduct = () => {
               <Package className="w-5 h-5 text-indigo-600" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">เพิ่มข้อมูลสินค้า</h2>
+              <h2 className="text-xl font-semibold text-gray-700">เพิ่มข้อมูลสินค้า</h2>
               <p className="text-sm text-gray-500">กำหนดรายละเอียด รูปภาพ และตัวเลือกสินค้า</p>
             </div>
           </div>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
@@ -306,6 +335,9 @@ const FormProduct = () => {
                 onChange={handleOnChange}
                 required
               />
+              {isDupTitleInCategory && form.title.trim() ? (
+                <p className="mt-1.5 text-sm text-red-600">มีชื่อสินค้านี้อยู่แล้วในหมวดที่เลือก</p>
+              ) : null}
             </div>
 
             <div>
@@ -323,18 +355,19 @@ const FormProduct = () => {
             <div>
               <label className="block text-gray-700 font-medium mb-1">ราคา</label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
+                pattern="\d*"
                 className="w-full border border-gray-200 rounded-xl p-2.5 shadow-sm focus:outline-none focus:ring-4 focus:ring-indigo-100"
                 name="price"
                 placeholder="ราคา"
                 value={form.price}
-                onChange={handleOnChange}
+                onChange={(e) => setForm((f) => ({ ...f, price: digitsOnly(e.target.value) }))}
                 required
               />
             </div>
           </div>
 
-          {/* หมวดหมู่แบบชิป */}
           <div>
             <label className="block text-gray-700 font-medium mb-1">หมวดหมู่</label>
             <div className="flex flex-wrap gap-2">
@@ -350,16 +383,14 @@ const FormProduct = () => {
             </div>
           </div>
 
-          {/* Upload */}
           <div>
             <label className="block text-gray-700 font-medium mb-2">อัปโหลดรูปภาพ</label>
             <Uploadfile key={uploaderKey} form={form} setForm={setForm} />
           </div>
 
-          {/* Variants */}
           <div className="mt-2">
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-gray-700 font-medium">ตัวเลือกสินค้า </label>
+              <label className="block text-gray-700 font-medium">ตัวเลือกสินค้า</label>
               <button
                 type="button"
                 onClick={addVariant}
@@ -369,7 +400,6 @@ const FormProduct = () => {
               </button>
             </div>
 
-            {/* แถวแนวนอนยาว */}
             <div className="rounded-xl border border-gray-200 bg-white p-3">
               {form.variants.length ? (
                 form.variants.map((v, idx) => (
@@ -391,28 +421,33 @@ const FormProduct = () => {
             </div>
           </div>
 
-          <div className="pt-2">
+          <div className="pt-2 flex items-center gap-3">
             <button
               type="submit"
-              className="bg-gray-900 text-white px-5 py-2.5 rounded-xl hover:bg-black transition-all shadow-md disabled:opacity-60"
-              disabled={submitting}
+              className="bg-gray-700 text-white px-5 py-2.5 rounded-xl hover:bg-black transition-all shadow-md disabled:opacity-60"
+              disabled={submitting || isDupTitleInCategory}
+              title={isDupTitleInCategory ? 'ชื่อสินค้าซ้ำในหมวดนี้' : undefined}
             >
               {submitting ? 'กำลังบันทึก...' : 'เพิ่มสินค้า'}
             </button>
-            {error && (
-              <div className="mt-2 inline-flex items-center gap-2 text-red-600 text-sm">
+            {totalVariantQty > 0 ? (
+              <span className="text-xs text-gray-500">
+                สต็อกจากตัวเลือกทั้งหมด: {totalVariantQty.toLocaleString('th-TH')}
+              </span>
+            ) : null}
+            {error ? (
+              <div className="inline-flex items-center gap-2 text-red-600 text-sm ml-auto">
                 <AlertTriangle className="w-4 h-4" />
                 <span>{error}</span>
               </div>
-            )}
+            ) : null}
           </div>
         </form>
       </div>
 
-      {/* รายการสินค้า */}
       <div className="bg-white/80 backdrop-blur shadow-xl rounded-2xl border border-gray-100">
         <div className="px-6 pt-6 pb-4 flex items-center justify-between gap-3">
-          <h3 className="text-lg font-semibold text-gray-900">รายการสินค้า</h3>
+          <h3 className="text-lg font-semibold text-gray-700">รายการสินค้า</h3>
           <span className="text-sm px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">
             {displayedProducts.length} รายการ
           </span>
@@ -443,13 +478,18 @@ const FormProduct = () => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {displayedProducts.map((item, index) => {
-                const qtySum = item.variants?.reduce((sum, v) => sum + (v.quantity || 0), 0) ?? item.quantity;
+                const qtySum =
+                  (item.variants?.reduce((sum, v) => sum + (v.quantity || 0), 0) ?? item.quantity);
                 return (
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">{index + 1}</td>
                     <td className="px-4 py-3">
                       {item.images?.length > 0 ? (
-                        <img src={item.images[0].url} alt="" className="w-16 h-16 object-cover rounded-md shadow" />
+                        <img
+                          src={item.images[0].url}
+                          alt=""
+                          className="w-16 h-16 object-cover rounded-md shadow"
+                        />
                       ) : (
                         <div className="w-16 h-16 bg-gray-300 flex items-center justify-center text-white rounded-md">
                           ไม่มีรูป
@@ -457,18 +497,25 @@ const FormProduct = () => {
                       )}
                     </td>
                     <td className="px-4 py-3">{item.title}</td>
-                    <td className="px-4 py-3 max-w-[24ch] truncate" title={item.description}>{item.description}</td>
-                    <td className="px-4 py-3">{nfmt.format(item.price)}</td>
+                    <td className="px-4 py-3 max-w-[24ch] truncate" title={item.description}>
+                      {item.description}
+                    </td>
+                    <td className="px-4 py-3">
+                      {nfmt.format(item.price)}
+                    </td>
                     <td className="px-4 py-3">{qtySum}</td>
                     <td className="px-4 py-3">{item.sold}</td>
                     <td className="px-4 py-3">
-                      {new Date(item.updatedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}
+                      {new Date(item.updatedAt).toLocaleString('th-TH', {
+                        dateStyle: 'medium',
+                        timeStyle: 'short',
+                      })}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-3">
                         <Link
-                          to={`/admin/product/${item.id}`}
-                          className="flex items-center gap-1 bg-amber-400 hover:bg-amber-500 text-white px-3 py-1.5 rounded-md text-sm shadow transition-all duration-200"
+                          to={'/admin/product/' + item.id}
+                          className="flex items-center gap-1 bg-gray-700 hover:bg-gray-800 text-white px-3 py-1.5 rounded-md text-sm shadow transition-all duration-200"
                         >
                           <Pencil size={16} />
                           <span>แก้ไข</span>
@@ -485,19 +532,20 @@ const FormProduct = () => {
                   </tr>
                 );
               })}
-              {displayedProducts.length === 0 && (
+              {displayedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">ยังไม่มีสินค้า</td>
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                    ยังไม่มีสินค้า
+                  </td>
                 </tr>
-              )}
+              ) : null}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Confirm Delete Modal */}
       <AnimatePresence>
-        {confirmId !== null && (
+        {confirmId !== null ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -517,8 +565,10 @@ const FormProduct = () => {
                   <AlertTriangle className="w-5 h-5 text-red-600" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-gray-900">ยืนยันการลบสินค้า</h2>
-                  <p className="text-gray-600 mt-1 text-sm">การลบสินค้าไม่สามารถย้อนกลับได้ คุณแน่ใจหรือไม่?</p>
+                  <h2 className="text-lg font-semibold text-gray-700">ยืนยันการลบสินค้า</h2>
+                  <p className="text-gray-600 mt-1 text-sm">
+                    การลบสินค้าไม่สามารถย้อนกลับได้ คุณแน่ใจหรือไม่?
+                  </p>
                 </div>
               </div>
               <div className="px-6 pb-6 flex items-center justify-end gap-3">
@@ -538,34 +588,26 @@ const FormProduct = () => {
               </div>
             </motion.div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
-      {/* Top Toast */}
       <AnimatePresence>
-        {topToast && (
+        {topToast ? (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl shadow-lg text-white text-sm font-medium ${topToast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
-              }`}
+            className={
+              'fixed top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl shadow-lg text-white text-sm font-medium ' +
+              (topToast.type === 'success' ? 'bg-green-600' : 'bg-red-600')
+            }
           >
             {topToast.message}
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );
 };
 
 export default FormProduct;
-
-
-
-
-
-
-
-
-

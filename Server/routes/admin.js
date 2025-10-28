@@ -4,6 +4,7 @@ const express = require('express')
 const { authCheck, adminCheck } = require('../middlewares/authCheck')
 const router = express.Router()
 //// import controller
+const { getLowStockThreshold, updateLowStockThreshold, setVariantLowStockThreshold } = require("../controllers/setting");
 const { getOrderAdmin, changeOrderstatus, listAllOrders,
     updateOrderStatus,
     lowStockNotifications,
@@ -24,10 +25,11 @@ router.put("/admin/orders/:id/status", authCheck, updateOrderStatus);
 router.put("/admin/orders/:id/cancel", authCheck, adminCheck, adminCancelOrder);
 router.patch("/admin/orders/:id/cancel", authCheck, adminCheck, updateCancelInfo);
 
-router.get("/admin/low-stock",authCheck,adminCheck, lowStockNotifications);
-router.get('/admin/new-orders',authCheck,adminCheck, newOrderNotifications);
+router.get("/admin/low-stock", authCheck, adminCheck, lowStockNotifications);
+router.get("/admin/settings/low-stock-threshold", authCheck, adminCheck, getLowStockThreshold);
+router.put("/admin/settings/low-stock-threshold", authCheck, adminCheck, updateLowStockThreshold);
+router.put("/admin/variants/:id/low-stock-threshold", authCheck, adminCheck, setVariantLowStockThreshold);
 
-
-
+router.get('/admin/new-orders', authCheck, adminCheck, newOrderNotifications);
 
 module.exports = router

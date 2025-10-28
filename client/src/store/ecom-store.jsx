@@ -5,7 +5,7 @@ import { listCategory } from '../api/Category'
 import { listProduct, searchFilters } from '../api/product'
 import { listSize } from '../api/Size'
 import { listGeneration } from '../api/Generation'
-
+import { getMyStatus } from '../api/adminUsers';
 // key เดียวต่อ variant
 const makeKey = (productId, variantId) => `${productId}::${variantId}`
 
@@ -19,9 +19,29 @@ const ecomStore = (set, get) => ({
   sizes: [],
   generations: [],
 
+
+  actionRefreshMyStatus: async () => {
+    const token = get().token;
+    if (!token) return null;
+    try {
+      const res = await getMyStatus(token);
+      const me = res?.data?.me;
+      if (me) {
+        // อัปเดต users ใน store ให้เป็นสถานะล่าสุดจาก server
+        set({ users: { ...(get().users || {}), ...me } });
+      }
+      return me;
+    } catch (err) {
+      // ถ้า token หมดอายุ/โดนยกเลิก จะไปเข้าหน้า login ตาม flow ของคุณได้
+      // หรือจะเช็ค err.response.status === 401 แล้ว logout อัตโนมัติก็ได้
+      // console.log(err);
+      return null;
+    }
+  },
+
   // ---------------- Auth ----------------
   actionLogin: async (form) => {
-    const res = await axios.post('http://localhost:5001/api/login', form)
+    const res = await axios.post('http://localhost:5002/api/login', form)
     const { token, PayLoad } = res.data
     axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
     set({ users: PayLoad, token })

@@ -1,0 +1,51 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: ku-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: KrSa1480@
+      MYSQL_DATABASE: Ecom_Shirt01
+    ports:
+      - "3307:3306"
+    command: [
+      "--character-set-server=utf8mb4",
+      "--collation-server=utf8mb4_unicode_ci"
+    ]
+    volumes:
+      - db_data:/var/lib/mysql
+
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: ku-backend
+    restart: always
+    env_file:
+      - ./server/.env.docker
+    depends_on:
+      - db
+    ports:
+      - "5002:5001"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: ku-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    environment:
+      VITE_API_URL: http://localhost:5002/api
+
+volumes:
+  db_data:

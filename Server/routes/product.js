@@ -3,7 +3,7 @@ const router = express.Router()
 // import controllers
 const { create, list, read, update, remove, listby, searchfilters, createImages, removeImage, getProductVariants } = require('../controllers/product')
 const { authCheck, adminCheck } = require('../middlewares/authCheck')
-// http://localhost:5001/api/product //
+// http://localhost:5002/api/product //
 router.post('/product', create)
 router.get('/products/:count', list)
 router.get('/product/:id', read)

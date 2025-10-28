@@ -3,6 +3,8 @@ const prisma = require("../config/prisma");
 const cloudinary = require("cloudinary").v2;
 const READY_STATUS_TH = "รับออเดอร์เสร็จสิ้น"; // รอผู้ซื้อมารับ/ชำระ
 
+const norm = (s = '') => String(s).trim().replace(/\s+/g, ' ').toLowerCase();
+
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUND_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -14,12 +16,20 @@ const PRODUCT_INCLUDE = {
   variants: { include: { size: true, generation: true } },
 };
 
-// ---------- CREATE ----------
+const toNum = (v, def = 0) => (v === "" || v == null ? def : Number(v));
+const numOrNull = (v) => (v === "" || v == null ? null : Number(v));
+const sanitizeThreshold = (th, qty) => {
+  // ถ้าไม่ได้ตั้ง => null, ถ้าตั้งน้อยกว่า 0 => 0
+  if (th == null) return null;
+  const n = Number(th);
+  return n < 0 ? 0 : n;
+};
+
 exports.create = async (req, res) => {
   try {
     const { title, description, price, quantity, categoryId, images = [], variants = [] } = req.body;
 
-    // กัน key ซ้ำ (sizeId + generationId รวม null)
+    // 0) กัน key ซ้ำของ variants (sizeId + generationId)
     const seen = new Set();
     for (const v of variants) {
       if (!v.sizeId) return res.status(400).json({ message: "sizeId is required in variants" });
@@ -28,15 +38,27 @@ exports.create = async (req, res) => {
       seen.add(key);
     }
 
+    // 1) กันชื่อซ้ำในหมวดเดียวกัน
+    const catId = categoryId ? Number(categoryId) : null;
+    const sameCat = await prisma.product.findMany({
+      where: { categoryId: catId },
+      select: { id: true, title: true },
+    });
+    const tNorm = norm(title);
+    const dup = sameCat.find(p => norm(p.title) === tNorm);
+    if (dup) {
+      return res.status(409).json({ message: `มีสินค้า "${dup.title}" อยู่แล้วในหมวดนี้` });
+    }
+
+    // 2) ทรานแซกชันสร้างสินค้าพร้อมรูป/variant (รองรับ lowStockThreshold)
     const product = await prisma.$transaction(async (tx) => {
       const created = await tx.product.create({
         data: {
           title: String(title).trim(),
           description: String(description).trim(),
           price: Number(price),
-          // ถ้าไม่คุมรวม ให้ส่ง 0 หรือปล่อย undefined ก็ได้
           quantity: quantity != null && quantity !== "" ? Number(quantity) : 0,
-          categoryId: categoryId ? Number(categoryId) : null,
+          categoryId: catId,
           images: {
             create: images.map((item) => ({
               asset_id: item.asset_id || "",
@@ -50,14 +72,19 @@ exports.create = async (req, res) => {
 
       if (variants.length) {
         await tx.productVariant.createMany({
-          data: variants.map((v) => ({
-            productId: created.id,
-            sizeId: Number(v.sizeId),
-            generationId: v.generationId == null || v.generationId === "" ? null : Number(v.generationId),
-            quantity: Number(v.quantity || 0),
-            sku: v.sku || null,
-          })),
-          skipDuplicates: true, // กันชน unique ซ้ำแบบ client ส่งมาซ้ำ
+          data: variants.map((v) => {
+            const qty = toNum(v.quantity, 0);
+            const th = sanitizeThreshold(numOrNull(v.lowStockThreshold), qty);
+            return {
+              productId: created.id,
+              sizeId: Number(v.sizeId),
+              generationId: v.generationId == null || v.generationId === "" ? null : Number(v.generationId),
+              quantity: qty,
+              sku: v.sku || null,
+              lowStockThreshold: th,
+            };
+          }),
+          skipDuplicates: true,
         });
       }
 
@@ -67,7 +94,6 @@ exports.create = async (req, res) => {
     res.status(201).json(product);
   } catch (err) {
     console.log(err);
-    // Prisma P2002/P2003 อาจเกิดหาก unique/foreign key ชน
     res.status(500).json({ message: "Server Error" });
   }
 };
@@ -128,14 +154,26 @@ exports.update = async (req, res) => {
       variants: incomingVariants = [],
     } = req.body;
 
-    // --- (optional) ดึงรูปเดิมไว้ เพื่อนำไปลบ Cloudinary หลังจากอัปเดต DB สำเร็จ ---
+    // 0) กันชื่อซ้ำในหมวดเดียวกัน (ยกเว้นเรคคอร์ดตัวเอง)
+    const catId = categoryId ? Number(categoryId) : null;
+    const sameCat = await prisma.product.findMany({
+      where: { categoryId: catId },
+      select: { id: true, title: true },
+    });
+    const tNorm = norm(title);
+    const dup = sameCat.find(p => p.id !== productId && norm(p.title) === tNorm);
+    if (dup) {
+      return res.status(409).json({ message: `มีสินค้า "${dup.title}" อยู่แล้วในหมวดนี้` });
+    }
+
+    // (optional) เก็บรูปเดิมไว้ เพื่อลบ Cloudinary หลัง DB อัปเดตสำเร็จ
     const oldImages = await prisma.image.findMany({
       where: { productId },
       select: { id: true, public_id: true },
     });
 
     const result = await prisma.$transaction(async (tx) => {
-      // 1) ลบรูปเดิมใน DB แล้วใส่รูปใหม่ (ถ้าต้อง diff จริงๆ ค่อยปรับภายหลัง)
+      // 1) ลบรูปเดิมใน DB แล้วใส่รูปใหม่
       await tx.image.deleteMany({ where: { productId } });
 
       await tx.product.update({
@@ -145,7 +183,7 @@ exports.update = async (req, res) => {
           description: String(description).trim(),
           price: Number(price),
           quantity: quantity != null && quantity !== "" ? Number(quantity) : 0,
-          categoryId: categoryId ? Number(categoryId) : null,
+          categoryId: catId,
           images: {
             create: images.map((item) => ({
               asset_id: item.asset_id || "",
@@ -157,50 +195,57 @@ exports.update = async (req, res) => {
         },
       });
 
-      // 2) เตรียมข้อมูล variants (normalize + dedup)
-      const normalize = (v) => ({
-        sizeId: Number(v.sizeId),
-        generationId:
-          v.generationId == null || v.generationId === "" ? null : Number(v.generationId),
-        quantity: Number(v.quantity || 0),
-        sku: v.sku || null,
-      });
-
-      const keyOf = (v) =>
-        `${v.sizeId}::${v.generationId == null ? "null" : v.generationId}`;
+      // 2) เตรียม variants (เพิ่ม lowStockThreshold)
+      const normalize = (v) => {
+        const qty = toNum(v.quantity, 0);
+        const th = sanitizeThreshold(numOrNull(v.lowStockThreshold), qty);
+        return {
+          sizeId: Number(v.sizeId),
+          generationId: v.generationId == null || v.generationId === "" ? null : Number(v.generationId),
+          quantity: qty,
+          sku: v.sku || null,
+          lowStockThreshold: th,
+        };
+      };
+      const keyOf = (v) => `${v.sizeId}::${v.generationId == null ? "null" : v.generationId}`;
 
       const targetMap = new Map();
       for (const raw of Array.isArray(incomingVariants) ? incomingVariants : []) {
         const v = normalize(raw);
-        if (!v.sizeId) throw new Error("sizeId is required in variants");
-        const key = keyOf(v);
-        targetMap.set(key, v); // ถ้ามีซ้ำ ให้ตัวท้ายทับ
+        if (!v.sizeId) return res.status(400).json({ message: "sizeId is required in variants" });
+        targetMap.set(keyOf(v), v); // ตัวท้ายทับ
       }
       const target = Array.from(targetMap.values());
 
       // 3) ดึง variants ปัจจุบัน
       const existing = await tx.productVariant.findMany({
         where: { productId },
-        select: { id: true, sizeId: true, generationId: true, quantity: true, sku: true },
+        select: { id: true, sizeId: true, generationId: true, quantity: true, sku: true, lowStockThreshold: true },
       });
       const existingByKey = new Map(
-        existing.map((e) => [
-          `${e.sizeId}::${e.generationId == null ? "null" : e.generationId}`,
-          e,
-        ])
+        existing.map((e) => [`${e.sizeId}::${e.generationId == null ? "null" : e.generationId}`, e])
       );
 
-      // 4) อัปเดต/สร้าง ตาม target
+      // 4) อัปเดต/สร้าง ตาม target (รวมเช็คเปลี่ยน threshold)
       const keepIds = new Set();
       for (const tv of target) {
         const k = keyOf(tv);
         const found = existingByKey.get(k);
         if (found) {
           keepIds.add(found.id);
-          if (found.quantity !== tv.quantity || found.sku !== tv.sku) {
+          const shouldUpdate =
+            found.quantity !== tv.quantity ||
+            found.sku !== tv.sku ||
+            (found.lowStockThreshold ?? null) !== (tv.lowStockThreshold ?? null);
+
+          if (shouldUpdate) {
             await tx.productVariant.update({
               where: { id: found.id },
-              data: { quantity: tv.quantity, sku: tv.sku },
+              data: {
+                quantity: tv.quantity,
+                sku: tv.sku,
+                lowStockThreshold: tv.lowStockThreshold,
+              },
             });
           }
         } else {
@@ -211,18 +256,16 @@ exports.update = async (req, res) => {
               generationId: tv.generationId,
               quantity: tv.quantity,
               sku: tv.sku,
+              lowStockThreshold: tv.lowStockThreshold,
             },
           });
         }
       }
 
-      // 5) จัดการตัวที่ “ไม่มีใน target” (ของเดิมที่อยากลบ)
-      const toDeleteIds = existing
-        .filter((e) => !keepIds.has(e.id))
-        .map((e) => e.id);
-
+      // 5) ตัวที่ไม่อยู่ใน target → พิจารณาลบ/ปิดการขาย
+      const toDeleteIds = existing.filter((e) => !keepIds.has(e.id)).map((e) => e.id);
       if (toDeleteIds.length) {
-        // 5.1) ตัวที่เคยอยู่ในออเดอร์ → ห้ามลบ
+        // 5.1) ที่เคยอยู่ในออเดอร์ → ห้ามลบ
         const usedInOrder = await tx.productOnOrder.findMany({
           where: { variantId: { in: toDeleteIds } },
           select: { variantId: true },
@@ -230,24 +273,17 @@ exports.update = async (req, res) => {
         const blockedIds = new Set(usedInOrder.map((x) => x.variantId));
         const deletableIds = toDeleteIds.filter((id) => !blockedIds.has(id));
 
-        // 5.2) ของที่ลบได้ → เคลียร์ ref ก่อน แล้วค่อยลบ
+        // 5.2) ลบได้ → เคลียร์ ref แล้วลบ
         if (deletableIds.length) {
-          // ตะกร้า
-          await tx.productOnCart.deleteMany({
-            where: { variantId: { in: deletableIds } },
-          });
-          // รีวิว (ถ้าจะเก็บรีวิวไว้ ให้ set null)
+          await tx.productOnCart.deleteMany({ where: { variantId: { in: deletableIds } } });
           await tx.productReview.updateMany({
             where: { variantId: { in: deletableIds } },
             data: { variantId: null },
           });
-          // ลบ variant
-          await tx.productVariant.deleteMany({
-            where: { id: { in: deletableIds } },
-          });
+          await tx.productVariant.deleteMany({ where: { id: { in: deletableIds } } });
         }
 
-        // 5.3) ของที่ “ลบไม่ได้” เพราะเคยอยู่ในออเดอร์ → ปิดการขายโดยตั้ง quantity = 0
+        // 5.3) ลบไม่ได้เพราะเคยอยู่ในออเดอร์ → ปิดขาย (quantity = 0) (threshold คงเดิม)
         if (blockedIds.size) {
           await tx.productVariant.updateMany({
             where: { id: { in: Array.from(blockedIds) } },
@@ -256,16 +292,12 @@ exports.update = async (req, res) => {
         }
       }
 
-      // เสร็จธุรกรรม
       return { ok: true };
     });
 
-    // 6) (optional) ลบรูปบน Cloudinary ของ “รูปเดิมที่ไม่อยู่ใน images ใหม่”
+    // 6) (optional) ลบ Cloudinary ที่ถูกถอดออก
     const newPublicIds = new Set(images.map((i) => i.public_id).filter(Boolean));
-    const removedPublicIds = oldImages
-      .map((i) => i.public_id)
-      .filter((pid) => pid && !newPublicIds.has(pid));
-
+    const removedPublicIds = oldImages.map((i) => i.public_id).filter((pid) => pid && !newPublicIds.has(pid));
     if (removedPublicIds.length) {
       await Promise.allSettled(
         removedPublicIds.map(
@@ -283,6 +315,7 @@ exports.update = async (req, res) => {
     return res.status(500).json({ message: "Server Error" });
   }
 };
+
 
 exports.remove = async (req, res) => {
   try {
@@ -347,48 +380,6 @@ exports.listby = async (req, res) => {
       take: Number(limit),
       orderBy: { [sort]: order === "asc" ? "asc" : "desc" },
       include: { category: true },
-    });
-    res.send(products);
-  } catch (err) {
-    console.log(err);
-    res.status(500).json({ message: "Server Error" });
-  }
-};
-
-// ---------- SEARCH HELPERS ----------
-const handleQuery = async (req, res, query) => {
-  try {
-    const products = await prisma.product.findMany({
-      where: { title: { contains: query, mode: "insensitive" } },
-      include: { category: true, images: true },
-    });
-    res.send(products);
-  } catch (err) {
-    console.log(err);
-    res.status(500).json({ message: "Search Error" });
-  }
-};
-
-const handlePrice = async (req, res, priceRange) => {
-  try {
-    const products = await prisma.product.findMany({
-      where: { price: { gte: Number(priceRange[0]), lte: Number(priceRange[1]) } },
-      include: { category: true, images: true },
-    });
-    res.send(products);
-  } catch (err) {
-    console.log(err);
-    res.status(500).json({ message: "Server Error" });
-  }
-};
-
-const handleCategory = async (req, res, categoryId) => {
-  try {
-    const products = await prisma.product.findMany({
-      where: {
-        categoryId: { in: categoryId.map((id) => Number(id)) },
-      },
-      include: { category: true, images: true },
     });
     res.send(products);
   } catch (err) {

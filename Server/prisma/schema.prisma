@@ -1,3 +1,262 @@
+// generator client {
+//   provider = "prisma-client-js"
+// }
+
+// datasource db {
+//   provider = "mysql"
+//   url      = env("DATABASE_URL")
+// }
+
+// model Users {
+//   id         Int      @id @default(autoincrement())
+//   first_name String
+//   last_name  String
+//   email      String   @unique(map: "Users_email_key")
+//   password   String
+//   phone      String
+//   id_card    String
+//   role       String   @default("user")
+//   enabled    Boolean  @default(true)
+//   createdAt  DateTime @default(now())
+//   updatedAt  DateTime @updatedAt
+
+//   // back-relations
+//   carts        Cart[]
+//   reviews      ProductReview[]
+//   orderhistory orderhistory[]
+//   PasswordOTP  PasswordOTP[]
+
+//   orders         Order[] @relation("UserOrders")
+//   canceledOrders Order[] @relation("UserCanceledOrders")
+// }
+
+// model Category {
+//   id        Int      @id @default(autoincrement())
+//   name      String   @unique(map: "Category_name_key")
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+
+//   // back-relations
+//   products Product[]
+// }
+
+// model Size {
+//   id        Int      @id @default(autoincrement())
+//   name      String   @unique(map: "Size_name_key")
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+
+//   variants ProductVariant[]
+// }
+
+// model Generation {
+//   id        Int      @id @default(autoincrement())
+//   name      String   @unique(map: "Generation_name_key")
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+
+//   variants ProductVariant[]
+// }
+
+// model Product {
+//   id          Int      @id @default(autoincrement())
+//   title       String
+//   description String
+//   price       Float
+//   sold        Int      @default(0)
+//   quantity    Int
+//   categoryId  Int?
+//   createdAt   DateTime @default(now())
+//   updatedAt   DateTime @updatedAt
+
+//   // ★ สรุปเรตติ้ง (ถ้าไม่ใช้ ลบสองบรรทัดนี้ได้)
+//   ratingAvg   Float @default(0)
+//   ratingCount Int   @default(0)
+
+//   // relations
+//   category Category?        @relation(fields: [categoryId], references: [id])
+//   images   Image[]
+//   variants ProductVariant[]
+//   reviews  ProductReview[]
+
+//   @@index([categoryId], map: "Product_categoryId_idx")
+// }
+
+// model ProductVariant {
+//   id           Int      @id @default(autoincrement())
+//   productId    Int
+//   sizeId       Int
+//   generationId Int?
+//   quantity     Int
+//   sku          String?  @unique(map: "ProductVariant_sku_key")
+//   createdAt    DateTime @default(now())
+//   updatedAt    DateTime @updatedAt
+
+//   product    Product     @relation(fields: [productId], references: [id])
+//   size       Size        @relation(fields: [sizeId], references: [id])
+//   generation Generation? @relation(fields: [generationId], references: [id])
+
+//   orders  ProductOnOrder[]
+//   carts   ProductOnCart[]
+//   reviews ProductReview[]
+
+//   @@unique([productId, sizeId, generationId], map: "ProductVariant_productId_sizeId_generationId_key")
+//   @@index([productId], map: "ProductVariant_productId_idx")
+//   @@index([sizeId], map: "ProductVariant_sizeId_idx")
+//   @@index([generationId], map: "ProductVariant_generationId_idx")
+// }
+
+// model Order {
+//   id          Int      @id @default(autoincrement())
+//   cartTotal   Float
+//   orderStatus String   @default("Not Process")
+//   orderById   Int
+//   createdAt   DateTime @default(now())
+//   updatedAt   DateTime @updatedAt
+
+//   cancelReason String? // เหตุผลหลัก เช่น "ลูกค้ายกเลิกเอง"
+//   cancelNote   String? // รายละเอียดเพิ่มเติมจาก modal
+//   canceledAt   DateTime? // เวลา/วันที่ยกเลิก
+//   canceledById Int? // (ออปชัน) ใครเป็นคนกดยกเลิก
+
+//   pickupPlace String?
+//   pickupAt    DateTime?
+//   pickupNote  String?
+
+//   orderBuy   Users  @relation("UserOrders", fields: [orderById], references: [id])
+//   canceledBy Users? @relation("UserCanceledOrders", fields: [canceledById], references: [id])
+
+//   products ProductOnOrder[]
+
+//   @@index([orderById], map: "Order_orderById_idx")
+//   @@index([orderStatus]) // 👉 ค้นหา/สรุปตามสถานะเร็วขึ้น
+//   @@index([canceledAt]) // 👉 สรุปยอดยกเลิกตามช่วงเวลา
+// }
+
+// model ProductOnOrder {
+//   id             Int     @id @default(autoincrement())
+//   orderId        Int
+//   variantId      Int
+//   productTitle   String
+//   sizeName       String
+//   generationName String?
+//   price          Float
+//   count          Int
+
+//   order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+//   variant ProductVariant @relation(fields: [variantId], references: [id])
+
+//   @@index([orderId], map: "ProductOnOrder_orderId_idx")
+//   @@index([variantId], map: "ProductOnOrder_variantId_idx")
+// }
+
+// model Cart {
+//   id        Int      @id @default(autoincrement())
+//   cartTotal Float
+//   orderById Int
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+
+//   orderBuy Users           @relation(fields: [orderById], references: [id])
+//   products ProductOnCart[]
+
+//   @@index([orderById], map: "Cart_orderById_idx")
+// }
+
+// model ProductOnCart {
+//   id             Int     @id @default(autoincrement())
+//   cartId         Int
+//   variantId      Int
+//   productTitle   String
+//   sizeName       String
+//   generationName String?
+//   price          Float
+//   count          Int
+
+//   cart    Cart           @relation(fields: [cartId], references: [id])
+//   variant ProductVariant @relation(fields: [variantId], references: [id])
+
+//   @@index([cartId], map: "ProductOnCart_cartId_idx")
+//   @@index([variantId], map: "ProductOnCart_variantId_idx")
+// }
+
+// model Image {
+//   id         Int      @id @default(autoincrement())
+//   asset_id   String
+//   public_id  String
+//   url        String
+//   secure_url String
+//   productId  Int
+//   createdAt  DateTime @default(now())
+//   updatedAt  DateTime @updatedAt
+
+//   product Product @relation(fields: [productId], references: [id])
+
+//   @@index([productId], map: "Image_productId_idx")
+// }
+
+// model ProductReview {
+//   id        Int      @id @default(autoincrement())
+//   userId    Int
+//   productId Int
+//   variantId Int?
+//   rating    Int
+//   text      String?
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+
+//   user    Users           @relation(fields: [userId], references: [id])
+//   product Product         @relation(fields: [productId], references: [id])
+//   variant ProductVariant? @relation(fields: [variantId], references: [id])
+
+//   @@unique([userId, productId, variantId], map: "Review_unique_per_user_product_variant")
+//   @@index([productId], map: "Review_productId_idx")
+//   @@index([variantId], map: "Review_variantId_idx")
+// }
+
+// model orderhistory {
+//   id          Int      @id @default(autoincrement())
+//   userId      Int
+//   orderId     Int? // อาจเป็น null ถ้าลบออเดอร์สดไปแล้ว
+//   cartTotal   Float
+//   orderStatus String
+//   products    Json // เก็บรายการสินค้าเป็น JSON snapshot
+//   createdAt   DateTime // เวลาที่สร้างออเดอร์สด
+//   archivedAt  DateTime @default(now()) // เวลาบันทึก/อัปเดตประวัติ
+
+//   user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+//   @@unique([userId, orderId], map: "OrderHistory_user_order_unique")
+// }
+
+// model PasswordOTP {
+//   id        Int       @id @default(autoincrement())
+//   userId    Int
+//   codeHash  String
+//   purpose   String    @default("reset") // ใช้ "reset" สำหรับลืมรหัสผ่าน
+//   attempts  Int       @default(0) // นับจำนวนพยายาม
+//   expiresAt DateTime
+//   createdAt DateTime  @default(now())
+//   usedAt    DateTime?
+
+//   user Users @relation(fields: [userId], references: [id])
+
+//   @@index([userId, expiresAt])
+// }
+
+// model EmailOtp {
+//   id         Int      @id @default(autoincrement())
+//   email      String   @unique
+//   codeHash   String
+//   expiresAt  DateTime
+//   attempts   Int      @default(0)
+//   lastSentAt DateTime @default(now())
+//   createdAt  DateTime @default(now())
+//   updatedAt  DateTime @updatedAt
+
+//   @@index([expiresAt])
+// }
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,33 +266,71 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Setting {
+  key   String @id
+  value String
+}
+
+/**
+ * ===================== ENUMS =====================
+ */
+enum Role {
+  user
+  admin
+}
+
+enum OrderStatus {
+  PENDING   @map("ผู้ขายได้รับคำสั่งซื้อแล้ว")
+  CONFIRMED @map("ผู้ขายจัดเตรียมสินค้าแล้วรอผู้ซื้อมารับ")
+  COMPLETED @map("ผู้ซื้อมารับสินค้าแล้ว")
+  CANCELED  @map("ยกเลิก")
+}
+
+enum OtpPurpose {
+  reset
+}
+
+/**
+ * ===================== MODELS =====================
+ */
 model Users {
-  id         Int      @id @default(autoincrement())
-  first_name String
-  last_name  String
-  email      String   @unique(map: "Users_email_key")
-  password   String
-  phone      String
-  id_card    String
-  role       String   @default("user")
-  enabled    Boolean  @default(true)
-  address    String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id         Int    @id @default(autoincrement()) @db.UnsignedInt
+  first_name String @db.VarChar(100)
+  last_name  String @db.VarChar(100)
+  email      String @unique(map: "Users_email_key") @db.VarChar(254)
+  // แนะนำเก็บเป็น bcrypt hash ความยาวคงที่ 60
+  password   String @db.Char(60)
+  // เบอร์ไทย 10 หลัก (ไม่มีขีด) — ถ้าต้องการมีขีดให้เปลี่ยนเป็น VarChar(12-13) ตามรูปแบบ
+  phone      String @db.Char(10)
+  // บัตรประชาชน “มีขีด” ความยาว 17 ตัวอักษร (เช่น X-XXXX-XXXXX-XX-X)
+  id_card    String @db.Char(17)
+
+  role      Role     @default(user)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bannedAt   DateTime?
+  banReason  String?   @db.VarChar(300)
+  bannedById Int?      @db.UnsignedInt
+  bannedBy   Users?    @relation("UserBannedBy", fields: [bannedById], references: [id])
+  bansMade   Users[]   @relation("UserBannedBy") 
 
   // back-relations
-  carts        Cart[]
-  reviews      ProductReview[]
-  orderhistory orderhistory[]
-  PasswordOTP  PasswordOTP[]
+  carts       Cart[]
+  reviews     ProductReview[]
+  PasswordOTP PasswordOTP[]
 
   orders         Order[] @relation("UserOrders")
   canceledOrders Order[] @relation("UserCanceledOrders")
+
+  @@index([bannedAt], map: "Users_bannedAt_idx")
+  @@index([bannedById], map: "Users_bannedById_idx") 
 }
 
 model Category {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique(map: "Category_name_key")
+  id        Int      @id @default(autoincrement()) @db.UnsignedInt
+  name      String   @unique(map: "Category_name_key") @db.VarChar(80)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -42,8 +339,8 @@ model Category {
 }
 
 model Size {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique(map: "Size_name_key")
+  id        Int      @id @default(autoincrement()) @db.UnsignedInt
+  name      String   @unique(map: "Size_name_key") @db.VarChar(20)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -51,8 +348,8 @@ model Size {
 }
 
 model Generation {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique(map: "Generation_name_key")
+  id        Int      @id @default(autoincrement()) @db.UnsignedInt
+  name      String   @unique(map: "Generation_name_key") @db.VarChar(50)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -60,19 +357,21 @@ model Generation {
 }
 
 model Product {
-  id          Int      @id @default(autoincrement())
-  title       String
-  description String
-  price       Float
-  sold        Int      @default(0)
-  quantity    Int
-  categoryId  Int?
+  id          Int      @id @default(autoincrement()) @db.UnsignedInt
+  title       String   @db.VarChar(150)
+  // รายละเอียดอาจยาว ใช้ Text
+  description String   @db.Text
+  // ราคาใช้ Decimal เลี่ยง float
+  price       Decimal  @db.Decimal(10, 2)
+  sold        Int      @default(0) @db.UnsignedInt
+  quantity    Int      @db.UnsignedInt
+  categoryId  Int?     @db.UnsignedInt
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // ★ สรุปเรตติ้ง (ถ้าไม่ใช้ ลบสองบรรทัดนี้ได้)
-  ratingAvg   Float @default(0)
-  ratingCount Int   @default(0)
+  // ★ เรตติ้งรวม
+  ratingAvg   Decimal @default(0) @db.Decimal(3, 2) // รองรับ 0.00–5.00
+  ratingCount Int     @default(0) @db.UnsignedInt
 
   // relations
   category Category?        @relation(fields: [categoryId], references: [id])
@@ -84,14 +383,16 @@ model Product {
 }
 
 model ProductVariant {
-  id           Int      @id @default(autoincrement())
-  productId    Int
-  sizeId       Int
-  generationId Int?
-  quantity     Int
-  sku          String?  @unique(map: "ProductVariant_sku_key")
+  id           Int      @id @default(autoincrement()) @db.UnsignedInt
+  productId    Int      @db.UnsignedInt
+  sizeId       Int      @db.UnsignedInt
+  generationId Int?     @db.UnsignedInt
+  quantity     Int      @db.UnsignedInt
+  sku          String?  @unique(map: "ProductVariant_sku_key") @db.VarChar(64)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  lowStockThreshold Int? @db.UnsignedInt
 
   product    Product     @relation(fields: [productId], references: [id])
   size       Size        @relation(fields: [sizeId], references: [id])
@@ -108,41 +409,42 @@ model ProductVariant {
 }
 
 model Order {
-  id          Int      @id @default(autoincrement())
-  cartTotal   Float
-  orderStatus String   @default("Not Process")
-  orderById   Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id          Int         @id @default(autoincrement()) @db.UnsignedInt
+  cartTotal   Decimal     @db.Decimal(12, 2)
+  orderStatus OrderStatus @default(PENDING)
+  orderById   Int         @db.UnsignedInt
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
-  cancelReason String? // เหตุผลหลัก เช่น "ลูกค้ายกเลิกเอง"
-  cancelNote   String? // รายละเอียดเพิ่มเติมจาก modal
-  canceledAt   DateTime? // เวลา/วันที่ยกเลิก
-  canceledById Int? // (ออปชัน) ใครเป็นคนกดยกเลิก
+  cancelReason String?   @db.VarChar(120) // เหตุผลหลัก เช่น "ลูกค้ายกเลิกเอง"
+  cancelNote   String?   @db.VarChar(500) // รายละเอียดจาก modal
+  canceledAt   DateTime?
+  canceledById Int?      @db.UnsignedInt
 
-  pickupPlace String?
+  pickupPlace String?   @db.VarChar(120)
   pickupAt    DateTime?
-  pickupNote  String?
+  pickupNote  String?   @db.VarChar(300)
 
   orderBuy   Users  @relation("UserOrders", fields: [orderById], references: [id])
   canceledBy Users? @relation("UserCanceledOrders", fields: [canceledById], references: [id])
 
-  products ProductOnOrder[]
+  products      ProductOnOrder[]
+  ProductReview ProductReview[]
 
   @@index([orderById], map: "Order_orderById_idx")
-  @@index([orderStatus]) // 👉 ค้นหา/สรุปตามสถานะเร็วขึ้น
-  @@index([canceledAt]) // 👉 สรุปยอดยกเลิกตามช่วงเวลา
+  @@index([orderStatus], map: "Order_status_idx")
+  @@index([canceledAt], map: "Order_canceledAt_idx")
 }
 
 model ProductOnOrder {
-  id             Int     @id @default(autoincrement())
-  orderId        Int
-  variantId      Int
-  productTitle   String
-  sizeName       String
-  generationName String?
-  price          Float
-  count          Int
+  id             Int     @id @default(autoincrement()) @db.UnsignedInt
+  orderId        Int     @db.UnsignedInt
+  variantId      Int     @db.UnsignedInt
+  productTitle   String  @db.VarChar(150)
+  sizeName       String  @db.VarChar(20)
+  generationName String? @db.VarChar(50)
+  price          Decimal @db.Decimal(10, 2)
+  count          Int     @db.UnsignedInt
 
   order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   variant ProductVariant @relation(fields: [variantId], references: [id])
@@ -152,9 +454,9 @@ model ProductOnOrder {
 }
 
 model Cart {
-  id        Int      @id @default(autoincrement())
-  cartTotal Float
-  orderById Int
+  id        Int      @id @default(autoincrement()) @db.UnsignedInt
+  cartTotal Decimal  @db.Decimal(12, 2)
+  orderById Int      @db.UnsignedInt
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -165,14 +467,14 @@ model Cart {
 }
 
 model ProductOnCart {
-  id             Int     @id @default(autoincrement())
-  cartId         Int
-  variantId      Int
-  productTitle   String
-  sizeName       String
-  generationName String?
-  price          Float
-  count          Int
+  id             Int     @id @default(autoincrement()) @db.UnsignedInt
+  cartId         Int     @db.UnsignedInt
+  variantId      Int     @db.UnsignedInt
+  productTitle   String  @db.VarChar(150)
+  sizeName       String  @db.VarChar(20)
+  generationName String? @db.VarChar(50)
+  price          Decimal @db.Decimal(10, 2)
+  count          Int     @db.UnsignedInt
 
   cart    Cart           @relation(fields: [cartId], references: [id])
   variant ProductVariant @relation(fields: [variantId], references: [id])
@@ -182,12 +484,13 @@ model ProductOnCart {
 }
 
 model Image {
-  id         Int      @id @default(autoincrement())
-  asset_id   String
-  public_id  String
-  url        String
-  secure_url String
-  productId  Int
+  id         Int      @id @default(autoincrement()) @db.UnsignedInt
+  asset_id   String   @db.VarChar(255)
+  public_id  String   @db.VarChar(255)
+  // URL อาจยาว กำหนดเผื่อ 2KB
+  url        String   @db.VarChar(1024)
+  secure_url String   @db.VarChar(1024)
+  productId  Int      @db.UnsignedInt
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -197,63 +500,52 @@ model Image {
 }
 
 model ProductReview {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  productId Int
-  variantId Int?
-  rating    Int
-  text      String?
+  id        Int      @id @default(autoincrement()) @db.UnsignedInt
+  userId    Int      @db.UnsignedInt
+  productId Int      @db.UnsignedInt
+  variantId Int?     @db.UnsignedInt
+  orderId   Int?     @db.UnsignedInt
+  // 1–5 แนะนำตรวจช่วงค่าในโค้ดแอปด้วย
+  rating    Int      @db.UnsignedInt
+  text      String?  @db.VarChar(600)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   user    Users           @relation(fields: [userId], references: [id])
   product Product         @relation(fields: [productId], references: [id])
   variant ProductVariant? @relation(fields: [variantId], references: [id])
+  order   Order?          @relation(fields: [orderId], references: [id])
 
-  @@unique([userId, productId, variantId], map: "Review_unique_per_user_product_variant")
+  @@unique([userId, productId, variantId, orderId], map: "Review_unique_per_user_variant_order")
   @@index([productId], map: "Review_productId_idx")
   @@index([variantId], map: "Review_variantId_idx")
-}
-
-model orderhistory {
-  id          Int      @id @default(autoincrement())
-  userId      Int
-  orderId     Int? // อาจเป็น null ถ้าลบออเดอร์สดไปแล้ว
-  cartTotal   Float
-  orderStatus String
-  products    Json // เก็บรายการสินค้าเป็น JSON snapshot
-  createdAt   DateTime // เวลาที่สร้างออเดอร์สด
-  archivedAt  DateTime @default(now()) // เวลาบันทึก/อัปเดตประวัติ
-
-  user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, orderId], map: "OrderHistory_user_order_unique")
+  @@index([orderId], map: "Review_orderId_idx")
 }
 
 model PasswordOTP {
-  id        Int       @id @default(autoincrement())
-  userId    Int
-  codeHash  String
-  purpose   String    @default("reset") // ใช้ "reset" สำหรับลืมรหัสผ่าน
-  attempts  Int       @default(0) // นับจำนวนพยายาม
+  id        Int        @id @default(autoincrement()) @db.UnsignedInt
+  userId    Int        @db.UnsignedInt
+  codeHash  String     @db.VarChar(255)
+  purpose   OtpPurpose @default(reset)
+  attempts  Int        @default(0) @db.UnsignedInt
   expiresAt DateTime
-  createdAt DateTime  @default(now())
+  createdAt DateTime   @default(now())
   usedAt    DateTime?
 
   user Users @relation(fields: [userId], references: [id])
 
-  @@index([userId, expiresAt])
+  @@index([userId, expiresAt], map: "PasswordOTP_user_exp_idx")
 }
 
 model EmailOtp {
-  id         Int      @id @default(autoincrement())
-  email      String   @unique
-  codeHash   String
+  id         Int      @id @default(autoincrement()) @db.UnsignedInt
+  email      String   @unique @db.VarChar(254)
+  codeHash   String   @db.VarChar(255)
   expiresAt  DateTime
-  attempts   Int      @default(0)
+  attempts   Int      @default(0) @db.UnsignedInt
   lastSentAt DateTime @default(now())
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  @@index([expiresAt])
+  @@index([expiresAt], map: "EmailOtp_expires_idx")
 }

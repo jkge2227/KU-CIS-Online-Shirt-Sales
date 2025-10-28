@@ -64,7 +64,7 @@ const HomeUser = () => {
   // --- โปรไฟล์ ---
   const [form, setForm] = useState({
     first_name: "", last_name: "", email: "",
-    phone: "", id_card: "", address: "",
+    phone: "", id_card: "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -85,15 +85,14 @@ const HomeUser = () => {
   const load = async () => {
     if (!token) { setLoading(false); return; }
     try {
-      const { data } = await getMyProfile(token); // ถ้า API ของคุณคืน .data อยู่
+      const { data } = await getMyProfile(token);
       const u = data?.user || users || {};
       setForm({
         first_name: u.first_name ?? "",
         last_name: u.last_name ?? "",
         email: u.email ?? "",
-        phone: onlyDigits(u.phone ?? "").slice(0, 10),                // เก็บเป็นเลขล้วน
-        id_card: formatThaiID(u.id_card ?? ""),                        // แสดงแบบมีขีด
-        address: u.address ?? "",
+        phone: onlyDigits(u.phone ?? "").slice(0, 10), // เก็บเป็นเลขล้วน
+        id_card: formatThaiID(u.id_card ?? ""),        // แสดงแบบมีขีด
       });
     } catch (e) {
       console.error(e);
@@ -103,10 +102,9 @@ const HomeUser = () => {
     }
   };
 
-  // นับถอยหลัง cooldown (เมื่อ > 0)
+  // โหลดโปรไฟล์ครั้งแรก + กันโหลดค้าง
   useEffect(() => {
     let timedOut = false;
-    // กันค้างกรณี API ไม่ตอบ
     const hardTimeout = setTimeout(() => {
       timedOut = true;
       setLoading(false);
@@ -122,6 +120,18 @@ const HomeUser = () => {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // 🔥 นับถอยหลัง cooldown ขอ OTP ใหม่
+  useEffect(() => {
+    if (cooldown <= 0) return; // ไม่ต้องตั้ง interval ถ้าเหลือ 0
+    const id = setInterval(() => {
+      setCooldown((sec) => {
+        const next = sec - 1;
+        return next > 0 ? next : 0;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [cooldown]);
 
   // invalid states
   const phoneDigits = onlyDigits(form.phone);
@@ -374,7 +384,7 @@ const HomeUser = () => {
 
       {/* โมดัล ลืมรหัสผ่าน (OTP 3 ขั้นตอน) */}
       {forgotOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden">
             <div className="p-5 border-b font-semibold">ลืมรหัสผ่าน</div>
 
@@ -398,6 +408,7 @@ const HomeUser = () => {
               {/* Step 1: ขอ OTP */}
               {otpStep === 1 && (
                 <div className="space-y-2">
+                  {/* คำอธิบาย */}
                   <div className="text-sm text-gray-700">
                     กด “ส่งรหัส OTP” ระบบจะส่งรหัสไปทางอีเมลของคุณ
                   </div>

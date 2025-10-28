@@ -28,6 +28,7 @@ import AdminSalesDashboard from '../components/admin/AdminSalesDashboard'
 import ForgotPasswordOTP from '../pages/auth/ForgotPasswordOTP'
 import ForgotPassword from '../pages/auth/ForgotPassword'
 import AdminUsers from '../components/admin/AdminUsers'
+import AdminSettingsPage from '../pages/admin/Settings'
 
 const router = createBrowserRouter([
     {
@@ -62,6 +63,7 @@ const router = createBrowserRouter([
             { path: 'statusorder', element: <StatusOrder /> },
             { path: 'dashboard', element: <AdminSalesDashboard /> },
             { path: 'adminusers', element: <AdminUsers /> },
+            { path: 'settings', element: <AdminSettingsPage /> },
         ]
     },
     {

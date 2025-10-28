@@ -1,6 +1,6 @@
 // client/src/api/adminOrders.jsx
 import axios from "axios";
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5001/api";
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5002/api";
 
 const api = axios.create({ baseURL: API_BASE });
 const auth = (token) => ({ headers: { Authorization: `Bearer ${token}` } });
@@ -22,44 +22,6 @@ export const adminUpdateOrderStatus = async (token, id, status) =>
 const authHeaders = (token) => ({
     headers: token ? { Authorization: `Bearer ${token}` } : {},
 });
-
-/**
- * ดึงแจ้งเตือนสินค้าสต็อกต่ำ (< 10)
- * server ควรคืนเป็น array ของ { id, title, time?, unread?, href? }
- */
-export const getLowStockNotifications = async (token) => {
-    const res = await api.get("/admin/low-stock", authHeaders(token));
-    const list = Array.isArray(res.data) ? res.data : [];
-
-    return list.map((n) => {
-        // พยายามหา productId จากฟิลด์ที่ backend อาจส่งมา
-        const pid =
-            n.productId ??
-            n.product_id ??
-            n.id ?? // บาง backend ใช้ id เป็น product id
-            (() => {
-                // เผื่อ backend ส่ง href แบบ /products/123 → ดึงเลขออกมา
-                if (typeof n.href === "string") {
-                    const m = n.href.match(/\/products\/(\d+)/);
-                    return m ? Number(m[1]) : undefined;
-                }
-                return undefined;
-            })();
-
-        // ถ้าเดา pid ไม่ได้จริง ๆ ก็ fallback ไปหน้า statusorder
-        const href = Number.isInteger(pid) ? `/admin/product/${pid}` : "/admin/statusorder";
-
-        return {
-            id: pid ?? n.id ?? Date.now(), // ให้มี id เสมอเพื่อใช้เป็น key
-            title: n.title ?? "สต็อกต่ำ",
-            time: n.time ?? "",
-            unread: Boolean(n.unread ?? true),
-            href,
-            type: "stock",
-            ts: n.ts ?? Date.now(),
-        };
-    });
-};
 
 
 export const getNewOrderNotifications = async (token, { hours = 24 } = {}) => {
@@ -90,3 +52,63 @@ export const adminCancelOrder = (token, id, payload = {}) =>
 
 export const adminUpdateCancelInfo = (token, id, payload = {}) =>
     api.patch(`/admin/orders/${id}/cancel`, payload, auth(token));
+
+
+// ===== SETTINGS =====
+export const getLowStockThreshold = async (token) => {
+    const res = await api.get("/admin/settings/low-stock-threshold", auth(token));
+    return Number(res.data?.value ?? 9);
+};
+
+export const setLowStockThreshold = async (token, value) => {
+    const res = await api.put("/admin/settings/low-stock-threshold", { value }, auth(token));
+    return Number(res.data?.value);
+};
+
+// ===== LOW STOCK NOTIFICATIONS =====
+export const getLowStockNotifications = async (token, options = {}) => {
+    const { threshold } = options; // optional override per request
+    const params = {};
+    if (threshold !== undefined) params.threshold = threshold;
+
+    const res = await api.get("/admin/low-stock", { ...auth(token), params });
+    const data = Array.isArray(res.data?.items)
+        ? res.data.items
+        : Array.isArray(res.data)
+            ? res.data
+            : [];
+
+    return data.map((n) => {
+        const pid =
+            n.productId ??
+            n.product_id ??
+            n.id ??
+            (() => {
+                if (typeof n.href === "string") {
+                    const m = n.href.match(/\/products\/(\d+)/);
+                    return m ? Number(m[1]) : undefined;
+                }
+                return undefined;
+            })();
+
+        const href = Number.isInteger(pid) ? `/admin/product/${pid}` : "/admin/statusorder";
+
+        return {
+            id: n.id ?? `stock:${pid ?? Date.now()}`,
+            title: n.title ?? "สต็อกต่ำ",
+            time: n.time ?? "",
+            unread: Boolean(n.unread ?? true),
+            href,
+            type: "stock",
+            ts: n.ts ?? Date.now(),
+            productId: pid,
+            variantId: n.variantId,
+        };
+    });
+};
+
+export const setVariantLowStockThreshold = async (token, variantId, value) => {
+    // value: number | null | "" (ค่าว่าง = ล้างเป็น null)
+    const res = await api.put(`/admin/variants/${variantId}/low-stock-threshold`, { value }, auth(token));
+    return res.data; // { id, lowStockThreshold }
+};

@@ -104,7 +104,7 @@ exports.remove = async (req, res) => {
     const inUse = await prisma.productVariant.count({ where: { generationId: id } });
     if (inUse > 0) {
       // เลือกแนวทางหนึ่ง: บล็อกการลบ
-      return res.status(409).json({ message: 'Cannot delete: generation is in use by some variants' });
+      return res.status(409).json({ message: 'ไม่สามารถลบได้ เพราะรุ่นเสื้อนี้ถูกใช้กับสินค้าอยู่' });
 
       // หรือ แนวทางล้างค่าให้ null แบบควบคุมด้วยโค้ด (ถ้าอยากให้ลบอัตโนมัติ)
       // await prisma.productVariant.updateMany({ where: { generationId: id }, data: { generationId: null } });

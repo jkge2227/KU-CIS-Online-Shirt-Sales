@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+// client/src/pages/ProductDetail.jsx
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import useEcomStore from "../store/ecom-store";
 import { getProductById } from "../api/ProductDetail";
@@ -9,12 +10,9 @@ import { toast } from "react-toastify";
 import { createUserCart } from "../api/users";
 
 const makeKey = (productId, variantId) => `${productId}::${variantId}`;
+const toNum = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
-const toNum = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-};
-
+// ---------- cart helper ----------
 const buildNextCarts = (currentCarts, payload) => {
     const {
         productId,
@@ -27,7 +25,6 @@ const buildNextCarts = (currentCarts, payload) => {
         image,
         maxStock,
     } = payload;
-
     const key = makeKey(productId, variantId);
     const idx = currentCarts.findIndex((c) => c.key === key);
 
@@ -43,36 +40,35 @@ const buildNextCarts = (currentCarts, payload) => {
         return updated;
     } else {
         const initCount = Math.max(1, Number(count || 1));
-        const newItem = {
-            key,
-            productId,
-            variantId,
-            count: maxStock != null ? Math.min(initCount, Number(maxStock)) : initCount,
-            price,
-            productTitle,
-            sizeName,
-            generationName,
-            image,
-            ...(maxStock != null ? { maxStock: Number(maxStock) } : {}),
-        };
-        return [...currentCarts, newItem];
+        return [
+            ...currentCarts,
+            {
+                key,
+                productId,
+                variantId,
+                count: maxStock != null ? Math.min(initCount, Number(maxStock)) : initCount,
+                price,
+                productTitle,
+                sizeName,
+                generationName,
+                image,
+                ...(maxStock != null ? { maxStock: Number(maxStock) } : {}),
+            },
+        ];
     }
 };
 
+// ---------- small pick helpers ----------
 const pickSizeName = (rv) =>
     rv?.sizeName ?? rv?.variantSizeName ?? rv?.variant?.size?.name ?? null;
-
 const pickGenerationName = (rv) =>
-    rv?.generationName ?? rv?.variantGenerationName ?? rv?.variant?.generation?.name ?? null;
+    rv?.generationName ??
+    rv?.variantGenerationName ??
+    rv?.variant?.generation?.name ??
+    null;
 
-/** A11y, pretty, and reuseable segmented options (pills) */
-function OptionGroup({
-    label,
-    options,
-    value,
-    onChange,
-    emptyLabel = "-- ไม่มีข้อมูล --",
-}) {
+/** กลุ่มตัวเลือกแบบ pill (a11y + สัมผัสดี) */
+function OptionGroup({ label, options, value, onChange, emptyLabel = "— ไม่มีข้อมูล —" }) {
     if (!options || options.length === 0) {
         return (
             <div>
@@ -98,11 +94,11 @@ function OptionGroup({
                             disabled={disabled}
                             onClick={() => onChange(opt.id ?? "")}
                             className={[
-                                "px-3 py-2 rounded-xl border shadow-sm text-sm transition-all",
-                                "focus:outline-none focus:ring-2",
+                                "h-9 px-3 rounded-full border text-sm transition-all shadow-sm",
+                                "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300",
                                 selected
-                                    ? "ring-gray-800 border-gray-800 bg-gray-800 text-white"
-                                    : "hover:border-gray-300 bg-white text-gray-700",
+                                    ? "border-gray-800 bg-gray-800 text-white"
+                                    : "bg-white text-gray-700 hover:border-gray-300",
                                 disabled ? "opacity-50 cursor-not-allowed" : "",
                             ].join(" ")}
                             title={disabled ? "สินค้าหมด" : opt.name}
@@ -111,9 +107,9 @@ function OptionGroup({
                                 {selected && <Check size={16} />}
                                 {opt.name}
                             </span>
-                            {opt.note ? (
-                                <span className="ml-2 text-xs text-gray-300">{opt.note}</span>
-                            ) : null}
+                            {opt.note && (
+                                <span className="ml-2 text-xs text-gray-400">({opt.note})</span>
+                            )}
                         </button>
                     );
                 })}
@@ -134,9 +130,12 @@ export default function ProductDetail() {
     const [activeIdx, setActiveIdx] = useState(0);
     const [showLightbox, setShowLightbox] = useState(false);
     const [loading, setLoading] = useState(true);
+
     const [sizeId, setSizeId] = useState("");
     const [generationId, setGenerationId] = useState("");
     const [count, setCount] = useState(1);
+
+    const autoSelectedOnce = useRef(false);
 
     // reviews
     const [reviews, setReviews] = useState([]);
@@ -144,6 +143,7 @@ export default function ProductDetail() {
     const [reviewTotal, setReviewTotal] = useState(0);
     const pageSize = 5;
 
+    // ---------- load product ----------
     useEffect(() => {
         let alive = true;
         (async () => {
@@ -166,6 +166,7 @@ export default function ProductDetail() {
         };
     }, [id, navigate]);
 
+    // ---------- load reviews ----------
     useEffect(() => {
         let alive = true;
         (async () => {
@@ -174,8 +175,7 @@ export default function ProductDetail() {
                 if (!alive) return;
                 const data = Array.isArray(r.data?.data) ? r.data.data : [];
                 setReviews(data);
-                const total = Number(r.data?.pagination?.total || 0);
-                setReviewTotal(total);
+                setReviewTotal(Number(r.data?.pagination?.total || 0));
             } catch {
                 // silent
             }
@@ -185,8 +185,7 @@ export default function ProductDetail() {
         };
     }, [id, reviewPage]);
 
-    // ---------- options ----------
-    // Compute stock per size and per (size,generation)
+    // ---------- options meta ----------
     const sizeMeta = useMemo(() => {
         const map = new Map(); // sizeId -> { name, totalQty }
         (item?.variants || []).forEach((v) => {
@@ -195,17 +194,19 @@ export default function ProductDetail() {
             prev.totalQty += Number(v.quantity || 0);
             map.set(v.size.id, prev);
         });
-        return map; // id -> {name,totalQty}
+        return map;
     }, [item]);
 
-    const sizeOptions = useMemo(() => {
-        return Array.from(sizeMeta.entries()).map(([id, { name, totalQty }]) => ({
-            id,
-            name,
-            disabled: totalQty <= 0,
-            note: totalQty > 0 ? `คงเหลือ ${totalQty}` : "หมด",
-        }));
-    }, [sizeMeta]);
+    const sizeOptions = useMemo(
+        () =>
+            Array.from(sizeMeta.entries()).map(([id, { name, totalQty }]) => ({
+                id,
+                name,
+                disabled: totalQty <= 0,
+                note: totalQty > 0 ? `คงเหลือ ${totalQty}` : "หมด",
+            })),
+        [sizeMeta]
+    );
 
     const generationOptions = useMemo(() => {
         if (!sizeId) return [];
@@ -216,7 +217,6 @@ export default function ProductDetail() {
                 name: v.generation ? v.generation.name : "ไม่มีรุ่น",
                 qty: Number(v.quantity || 0),
             }));
-        // aggregate by id
         const agg = new Map();
         list.forEach((g) => {
             const prev = agg.get(g.id) || { id: g.id, name: g.name, qty: 0 };
@@ -224,7 +224,7 @@ export default function ProductDetail() {
             agg.set(g.id, prev);
         });
         return Array.from(agg.values()).map((g) => ({
-            id: g.id, // null -> ""
+            id: g.id,
             name: g.name,
             disabled: g.qty <= 0,
             note: g.qty > 0 ? `คงเหลือ ${g.qty}` : "หมด",
@@ -244,16 +244,32 @@ export default function ProductDetail() {
     const stock = selectedVariant?.quantity ?? 0;
     const canAdd = selectedVariant && stock > 0 && count > 0;
 
-    // Ensure generation id is valid when size changes
+    // ---------- auto-select once ----------
+    useEffect(() => {
+        if (!item || autoSelectedOnce.current) return;
+        const list = Array.isArray(item.variants) ? item.variants : [];
+        let first = list.find((v) => Number(v.quantity) > 0) || list[0];
+        if (first) {
+            setSizeId(String(first.sizeId));
+            setGenerationId(String(first.generationId ?? ""));
+            autoSelectedOnce.current = true;
+        }
+    }, [item]);
+
+    // Ensure generation valid when size changes
     useEffect(() => {
         if (!sizeId) {
             setGenerationId("");
             return;
         }
-        const ids = new Set(generationOptions.map((g) => String(g.id ?? "")));
-        if (!ids.has(String(generationId))) setGenerationId("");
-    }, [sizeId, generationOptions]);
+        const validSet = new Set(generationOptions.map((g) => String(g.id ?? "")));
+        if (!validSet.has(String(generationId))) {
+            const firstEnabled = generationOptions.find((g) => !g.disabled) ?? generationOptions[0];
+            setGenerationId(firstEnabled ? String(firstEnabled.id ?? "") : "");
+        }
+    }, [sizeId, generationOptions]); // omit generationId by design
 
+    // ---------- add to cart ----------
     const handleAdd = async () => {
         if (!item || !selectedVariant) return;
 
@@ -269,22 +285,30 @@ export default function ProductDetail() {
             maxStock: selectedVariant.quantity,
         };
 
-        actionAddtoCart(payload);
+        const nextCarts = buildNextCarts(carts, payload);
 
         try {
             if (token) {
-                const nextCarts = buildNextCarts(carts, payload);
-                await createUserCart(token, { cart: nextCarts });
+                await createUserCart(token, { cart: nextCarts });  // 🔐 โดนแบนจะเด้ง 403 ตรงนี้
+                actionAddtoCart(payload);
                 toast.success("เพิ่มลงตะกร้าและบันทึกแล้ว");
             } else {
+                actionAddtoCart(payload);
                 toast.info("เพิ่มลงตะกร้าแล้ว (ยังไม่บันทึกเพราะยังไม่ได้เข้าสู่ระบบ)");
             }
         } catch (e) {
-            console.error(e);
-            toast.error("บันทึกตะกร้าขึ้นเซิร์ฟเวอร์ไม่สำเร็จ");
+            const msg = e?.response?.data?.message || "บันทึกตะกร้าขึ้นเซิร์ฟเวอร์ไม่สำเร็จ";
+            if (e?.response?.status === 403) {
+                // จะได้ข้อความ: "บัญชีถูกปิดใช้งาน: อนุญาตเฉพาะการอ่านข้อมูล"
+                toast.error(msg);
+            } else {
+                toast.error(msg);
+            }
         }
     };
 
+
+    // ---------- loading ----------
     if (loading) {
         return (
             <div className="max-w-6xl mx-auto p-6">
@@ -296,17 +320,22 @@ export default function ProductDetail() {
             </div>
         );
     }
-
     if (!item) return null;
 
     const totalPages = Math.max(1, Math.ceil(reviewTotal / pageSize));
 
     return (
-        <div className="max-w-6xl mx-auto p-4 md:p-6">
+        <div className="mx-auto w-full max-w-[1289px] px-6 pt-6 space-y-6 md:p-5">
             {/* Breadcrumb */}
             <div className="text-sm text-gray-500 mb-3">
-                <span className="cursor-pointer hover:underline" onClick={() => navigate("/")}>สินค้าทั้งหมด</span>
-                {" "}/ <span className="text-gray-700">{item.title}</span>
+                <button
+                    className="hover:underline"
+                    onClick={() => navigate("/")}
+                    aria-label="กลับไปหน้าสินค้าทั้งหมด"
+                >
+                    สินค้าทั้งหมด
+                </button>{" "}
+                / <span className="text-gray-700">{item.title}</span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
@@ -322,13 +351,17 @@ export default function ProductDetail() {
                                     onClick={() => setShowLightbox(true)}
                                 />
                             ) : (
-                                <div className="text-gray-400 text-sm">No Image</div>
+                                <div className="text-gray-400 text-sm">ไม่มีรูปภาพ</div>
                             )}
                             {showLightbox && (
-                                <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center">
+                                <div
+                                    className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+                                    onClick={() => setShowLightbox(false)}
+                                >
                                     <button
                                         className="absolute top-4 right-4 text-white text-2xl"
                                         onClick={() => setShowLightbox(false)}
+                                        aria-label="ปิดรูปขยาย"
                                     >
                                         ✕
                                     </button>
@@ -336,8 +369,11 @@ export default function ProductDetail() {
                                         className="absolute left-4 text-white text-3xl"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            setActiveIdx((i) => (i - 1 + item.images.length) % item.images.length);
+                                            setActiveIdx(
+                                                (i) => (i - 1 + item.images.length) % item.images.length
+                                            );
                                         }}
+                                        aria-label="รูปก่อนหน้า"
                                     >
                                         ‹
                                     </button>
@@ -352,12 +388,14 @@ export default function ProductDetail() {
                                             e.stopPropagation();
                                             setActiveIdx((i) => (i + 1) % item.images.length);
                                         }}
+                                        aria-label="รูปถัดไป"
                                     >
                                         ›
                                     </button>
                                 </div>
                             )}
                         </div>
+
                         {item.images?.length > 1 && (
                             <div className="mt-3 grid grid-cols-5 gap-2">
                                 {item.images.map((im, i) => (
@@ -381,14 +419,14 @@ export default function ProductDetail() {
                 <div className="md:col-span-7">
                     <div className="rounded-2xl border bg-white p-4 md:p-6 space-y-3">
                         <h1 className="text-2xl font-semibold text-gray-900">{item.title}</h1>
-                        <div className="text-sm text-gray-600">{item.description}</div>
+                        <p className="text-sm text-gray-600 line-clamp-3">{item.description}</p>
 
                         <div className="pt-1">
                             <ProductRating productId={item.id} size={20} />
                         </div>
 
                         <div className="text-3xl font-bold text-gray-700 pt-1">
-                            {toNum(item.price).toLocaleString()} ฿
+                            ฿{toNum(item.price).toLocaleString("th-TH")}
                         </div>
 
                         {item.pickupLocation && (
@@ -397,10 +435,10 @@ export default function ProductDetail() {
                             </div>
                         )}
 
-                        {/* selectors as pills */}
+                        {/* selectors */}
                         <div className="grid grid-cols-1 gap-3 pt-2">
                             <OptionGroup
-                                label="เลือก Size"
+                                label="ไซซ์"
                                 options={sizeOptions}
                                 value={sizeId}
                                 onChange={(val) => {
@@ -408,59 +446,82 @@ export default function ProductDetail() {
                                     setGenerationId("");
                                 }}
                             />
-
                             <OptionGroup
-                                label="เลือกรุ่น"
+                                label="รุ่น"
                                 options={generationOptions}
                                 value={generationId}
                                 onChange={(val) => setGenerationId(String(val))}
-                                emptyLabel={sizeId ? "ไม่มีตัวเลือกของรุ่นสำหรับไซซ์นี้" : "เลือก Size ก่อน"}
+                                emptyLabel={sizeId ? "ไม่มีตัวเลือกรุ่นของไซซ์นี้" : "เลือกไซซ์ก่อน"}
                             />
                         </div>
 
                         {/* qty + add */}
-                        <div className="flex items-end justify-between gap-3 pt-2">
+                        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 pt-2">
                             <div>
                                 <div className="text-sm font-medium mb-1">จำนวน</div>
-                                <div className="inline-flex items-center rounded-xl border bg-white overflow-hidden">
+                                <div className="inline-flex items-center h-9 rounded-full border bg-white overflow-hidden">
                                     <button
                                         type="button"
-                                        className="px-2 py-2 disabled:opacity-50"
+                                        className="w-9 h-9 flex items-center justify-center disabled:opacity-50"
                                         onClick={() => setCount((c) => Math.max(1, c - 1))}
                                         disabled={!selectedVariant || count <= 1}
                                         aria-label="ลดจำนวน"
+                                        title="ลดจำนวน"
                                     >
                                         <Minus size={16} />
                                     </button>
                                     <input
                                         type="number"
                                         min="1"
-                                        className="w-16 text-center p-2 focus:outline-none"
+                                        className="w-14 h-9 text-center border-x outline-none
+                      [appearance:textfield]
+                      [&::-webkit-outer-spin-button]:appearance-none
+                      [&::-webkit-inner-spin-button]:appearance-none"
                                         value={count}
-                                        onChange={(e) => setCount(Math.max(1, Number(e.target.value || 1)))}
+                                        onChange={(e) =>
+                                            setCount(Math.max(1, Number(e.target.value || 1)))
+                                        }
                                         disabled={!selectedVariant}
+                                        aria-label="จำนวนสินค้า"
                                     />
                                     <button
                                         type="button"
-                                        className="px-2 py-2 disabled:opacity-50"
-                                        onClick={() => setCount((c) => Math.max(1, Math.min(c + 1, Number(stock || 1))))}
+                                        className="w-9 h-9 flex items-center justify-center disabled:opacity-50"
+                                        onClick={() =>
+                                            setCount((c) => Math.min(Number(stock || 1), c + 1))
+                                        }
                                         disabled={!selectedVariant || count >= Number(stock || 1)}
                                         aria-label="เพิ่มจำนวน"
+                                        title="เพิ่มจำนวน"
                                     >
                                         <Plus size={16} />
                                     </button>
                                 </div>
-                                <div className="text-xs text-gray-500 mt-1">สต็อก: {selectedVariant ? stock : "-"}</div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                    คงเหลือ: {selectedVariant ? stock : "-"}
+                                </div>
                             </div>
 
                             <button
                                 onClick={handleAdd}
                                 disabled={!canAdd}
-                                className={`flex items-center gap-2 rounded-xl px-4 py-2 shadow-md transition-all ${canAdd
+                                className={[
+                                    "w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2",
+                                    "text-sm font-semibold shadow-md transition-all",
+                                    canAdd
                                         ? "bg-gray-800 hover:bg-gray-900 text-white"
-                                        : "bg-gray-200 text-gray-600 cursor-not-allowed"
-                                    }`}
-                                title={!sizeId ? "กรุณาเลือก Size" : !selectedVariant ? "เลือกรุ่นให้ครบ" : stock <= 0 ? "สินค้าหมด" : ""}
+                                        : "bg-gray-200 text-gray-600 cursor-not-allowed",
+                                ].join(" ")}
+                                title={
+                                    !sizeId
+                                        ? "กรุณาเลือกไซซ์"
+                                        : !selectedVariant
+                                            ? "กรุณาเลือกรุ่น"
+                                            : stock <= 0
+                                                ? "สินค้าหมด"
+                                                : "เพิ่มลงตะกร้า"
+                                }
+                                aria-label="เพิ่มลงตะกร้า"
                             >
                                 <ShoppingBasket size={18} />
                                 เพิ่มลงตะกร้า
@@ -472,7 +533,9 @@ export default function ProductDetail() {
                     <div className="mt-6 rounded-2xl border bg-white p-4 md:p-6">
                         <div className="flex items-center justify-between mb-3">
                             <div className="text-lg font-semibold">รีวิวสินค้า</div>
-                            <div className="text-sm text-gray-500">หน้า {reviewPage}/{totalPages}</div>
+                            <div className="text-sm text-gray-500">
+                                หน้า {reviewPage}/{totalPages}
+                            </div>
                         </div>
 
                         {reviews.length === 0 ? (
@@ -483,13 +546,16 @@ export default function ProductDetail() {
                                     const sizeName = pickSizeName(rv);
                                     const genName = pickGenerationName(rv);
                                     const hasVariantMeta = !!(sizeName || genName);
-
                                     return (
                                         <div key={rv.id} className="p-3 rounded-xl border bg-gray-50">
                                             <div className="flex items-center justify-between">
-                                                <div className="text-sm font-medium text-gray-800">{rv.userName || "ผู้ใช้"}</div>
+                                                <div className="text-sm font-medium text-gray-800">
+                                                    {rv.userName || "ผู้ใช้"}
+                                                </div>
                                                 <div className="text-xs text-gray-500">
-                                                    {new Date(rv.createdAt).toLocaleDateString("th-TH", { dateStyle: "medium" })}
+                                                    {new Date(rv.createdAt).toLocaleDateString("th-TH", {
+                                                        dateStyle: "medium",
+                                                    })}
                                                 </div>
                                             </div>
 
@@ -499,20 +565,28 @@ export default function ProductDetail() {
                                                         <Star
                                                             key={n}
                                                             size={16}
-                                                            className={(rv.rating || 0) >= n ? "fill-yellow-300 stroke-yellow-300" : "stroke-gray-300"}
+                                                            className={
+                                                                (rv.rating || 0) >= n
+                                                                    ? "fill-yellow-300 stroke-yellow-300"
+                                                                    : "stroke-gray-300"
+                                                            }
                                                         />
                                                     ))}
                                                 </div>
                                                 {hasVariantMeta && (
                                                     <div className="text-xs text-gray-600">
-                                                        {sizeName ? `Size: ${sizeName}` : null}
+                                                        {sizeName ? `ไซซ์: ${sizeName}` : null}
                                                         {sizeName && genName ? " • " : ""}
                                                         {genName ? `รุ่น: ${genName}` : null}
                                                     </div>
                                                 )}
                                             </div>
 
-                                            {rv.text && <div className="text-sm text-gray-700 mt-1 whitespace-pre-line">{rv.text}</div>}
+                                            {rv.text && (
+                                                <div className="text-sm text-gray-700 mt-1 whitespace-pre-line">
+                                                    {rv.text}
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 })}

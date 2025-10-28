@@ -1,9 +1,12 @@
 // client/src/components/admin/HeaderAdmin.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { Bell, ShoppingCart, ChevronDown, User2, LogOut } from "lucide-react";
+import { Bell, ChevronDown, User2, LogOut } from "lucide-react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import useEcomStore from "../../store/ecom-store";
-import { getLowStockNotifications, getNewOrderNotifications } from "../../api/adminOrders";
+import {
+  getLowStockNotifications,
+  getNewOrderNotifications,
+} from "../../api/adminOrders";
 
 const HeaderAdmin = () => {
   const navigate = useNavigate();
@@ -14,6 +17,7 @@ const HeaderAdmin = () => {
   const [openNoti, setOpenNoti] = useState(false);
   const [loading, setLoading] = useState(false);
   const [noti, setNoti] = useState([]);
+
   const notiBtnRef = useRef(null);
   const notiPopRef = useRef(null);
 
@@ -22,28 +26,15 @@ const HeaderAdmin = () => {
   const userBtnRef = useRef(null);
   const userPopRef = useRef(null);
 
-  // ▼ ตัวแปรกัน reload ถี่เกิน
+  // ▼ เก็บ unread รอบก่อน เพื่อเช็คว่ามี noti ใหม่ไหม (แต่จะไม่ reload แล้ว)
   const prevUnreadRef = useRef(0);
   const firstRunRef = useRef(true);
-  const lastReloadAtRef = useRef(0);
 
-  // ฟังก์ชันกัน reload ถี่เกิน
-  const triggerReloadIfNeeded = () => {
-    const now = Date.now();
-    if (now - lastReloadAtRef.current < 5000) return; // กัน spam
-    lastReloadAtRef.current = now;
-    try {
-      navigate(0); // soft reload
-    } catch {
-      window.location.reload(); // fallback
-    }
-  };
-
-  // helper time-safe
+  // time helper: รับได้ทั้ง Date, string, number
   const pickTs = (...cands) => {
     for (const c of cands) {
-      if (!c) continue;
-      const t = (c instanceof Date) ? c.getTime() : new Date(c).getTime();
+      if (c === undefined || c === null) continue;
+      const t = c instanceof Date ? c.getTime() : new Date(c).getTime();
       if (Number.isFinite(t)) return t;
     }
     return Date.now();
@@ -52,9 +43,11 @@ const HeaderAdmin = () => {
   const fetchNoti = async () => {
     try {
       setLoading(true);
+
+      // ให้ backend จัดการ threshold / hours ตาม logic ปัจจุบัน
       const [ordersRes, stocksRes] = await Promise.all([
         getNewOrderNotifications(token, { hours: 24 }),
-        getLowStockNotifications(token, { threshold: 5 }),
+        getLowStockNotifications(token),
       ]);
 
       const orders = Array.isArray(ordersRes) ? ordersRes : [];
@@ -63,52 +56,83 @@ const HeaderAdmin = () => {
       const mapOrder = (o) => {
         const orderId = o.orderId ?? o.id;
         return {
-          id: `order:${orderId}`,
-          title: o.title ?? `ออเดอร์ใหม่ #${orderId}`,
+          id: `order:${orderId ?? Math.random()}`,
+          title:
+            o.title ??
+            (orderId ? `ออเดอร์ใหม่ #${orderId}` : "ออเดอร์ใหม่"),
           time: o.time ?? "",
-          unread: o.unread ?? true,
+          unread: Boolean(o.unread ?? true),
           type: "order",
-          href: o.href || `/admin/statusorder?focus=${encodeURIComponent(orderId)}`,
-          ts: Number.isFinite(Number(o.ts)) ? Number(o.ts) : pickTs(o.createdAt, o.time),
+          href:
+            o.href ||
+            `/admin/statusorder${orderId ? `?focus=${encodeURIComponent(orderId)}` : ""
+            }`,
+          ts: Number.isFinite(Number(o.ts))
+            ? Number(o.ts)
+            : pickTs(o.createdAt, o.time),
         };
       };
 
       const mapStock = (s) => ({
-        id: s.id ?? `stock:${s.variantId ?? "x"}`,
+        id: s.id ?? `stock:${s.variantId ?? Math.random()}`,
         title: s.title ?? "สต็อกต่ำ",
         time: s.time ?? "",
-        unread: s.unread ?? true,
+        unread: Boolean(s.unread ?? true),
         type: "stock",
-        href: s.href || (s.productId ? `/admin/product/${encodeURIComponent(s.productId)}` : "/admin/product"),
-        ts: Number.isFinite(Number(s.ts)) ? Number(s.ts) : pickTs(s.updatedAt, s.time),
+        href: s.href
+          || (s.productId
+            ? `/admin/product/${encodeURIComponent(s.productId)}`
+            : "/admin/product"),
+        ts: Number.isFinite(Number(s.ts))
+          ? Number(s.ts)
+          : pickTs(s.updatedAt, s.time),
       });
 
-      const merged = [...orders.map(mapOrder), ...stocks.map(mapStock)]
-        .sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
+      const merged = [...orders.map(mapOrder), ...stocks.map(mapStock)].sort(
+        (a, b) => (b.ts ?? 0) - (a.ts ?? 0)
+      );
 
-      setNoti(merged);
-
-      // ตรวจสอบว่ามีแจ้งเตือนใหม่หรือไม่
+      // ---- logic เดิมที่เคย reload หน้า ตอนนี้เปลี่ยนเป็นแค่อัปเดต state ----
       const unreadNow = merged.filter((n) => n.unread).length;
+
+      // ถ้าไม่ใช่รอบแรก และ unread เพิ่มขึ้น => เราจะไม่ reload แล้ว
+      // จะทำอย่างอื่นได้ เช่น console.log หรือแจ้งเตือนในอนาคต
       if (!firstRunRef.current && unreadNow > prevUnreadRef.current) {
-        triggerReloadIfNeeded();
+        // ตัวอย่าง: console.log("🔔 มีแจ้งเตือนใหม่");
+        // หรือ setLocalToast("มีแจ้งเตือนใหม่"); (ถ้าอยากเพิ่ม toast ภายหลัง)
       }
+
       prevUnreadRef.current = unreadNow;
       firstRunRef.current = false;
 
+      setNoti(merged);
     } catch (e) {
-      console.error("load notifications error:", e?.response?.data || e.message);
+      console.error(
+        "load notifications error:",
+        e?.response?.data || e.message
+      );
       setNoti([]);
     } finally {
       setLoading(false);
     }
   };
 
+  // ดึง noti ตอน mount + ทุกๆ 30 วินาที
   useEffect(() => {
     let mounted = true;
-    (async () => { if (!mounted) return; await fetchNoti(); })();
+
+    (async () => {
+      if (!mounted) return;
+      await fetchNoti();
+    })();
+
     const t = setInterval(fetchNoti, 30_000);
-    return () => { mounted = false; clearInterval(t); };
+
+    return () => {
+      mounted = false;
+      clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   // ปิด dropdown เมื่อคลิกนอก
@@ -146,7 +170,7 @@ const HeaderAdmin = () => {
     const ln = users?.last_name?.trim?.() || "";
     const a = (fn[0] || "").toUpperCase();
     const b = (ln[0] || (users?.email?.[0] || "")).toUpperCase();
-    return (a + b) || "U";
+    return a + b || "U";
   })();
 
   const handleLogout = () => {
@@ -157,7 +181,8 @@ const HeaderAdmin = () => {
   return (
     <header className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
       <div className="mx-auto h-16 px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-        <NavLink>
+        <NavLink className="text-sm font-semibold text-gray-700 hover:text-black">
+          {/* (โลโก้ / ชื่อระบบใส่เพิ่มได้) */}
         </NavLink>
 
         <div className="flex items-center gap-3">
@@ -167,7 +192,10 @@ const HeaderAdmin = () => {
               ref={notiBtnRef}
               onClick={() => setOpenNoti((s) => !s)}
               className={`group relative inline-flex items-center gap-1 px-3 py-2 rounded-lg border transition-colors
-                ${openNoti ? "bg-gray-800 text-white border-gray-800" : "border-gray-200 text-gray-800 hover:bg-gray-800 hover:text-white hover:border-black"}`}
+                ${openNoti
+                  ? "bg-gray-800 text-white border-gray-800"
+                  : "border-gray-200 text-gray-800 hover:bg-gray-800 hover:text-white hover:border-black"
+                }`}
               title="การแจ้งเตือน"
             >
               <Bell className="h-5 w-5 text-current" />
@@ -176,7 +204,12 @@ const HeaderAdmin = () => {
                   {unreadCount}
                 </span>
               )}
-              <ChevronDown className={`h-4 w-4 ml-1 transition ${openNoti ? "rotate-180 text-white" : "text-gray-700 group-hover:text-white"}`} />
+              <ChevronDown
+                className={`h-4 w-4 ml-1 transition ${openNoti
+                    ? "rotate-180 text-white"
+                    : "text-gray-700 group-hover:text-white"
+                  }`}
+              />
             </button>
 
             {openNoti && (
@@ -193,7 +226,9 @@ const HeaderAdmin = () => {
 
                 <ul className="max-h-80 overflow-auto">
                   {!loading && noti.length === 0 && (
-                    <li className="px-4 py-8 text-center text-gray-500 text-sm">ไม่มีการแจ้งเตือน</li>
+                    <li className="px-4 py-8 text-center text-gray-500 text-sm">
+                      ไม่มีการแจ้งเตือน
+                    </li>
                   )}
                   {noti.map((n) => (
                     <li key={n.id}>
@@ -204,15 +239,21 @@ const HeaderAdmin = () => {
                       >
                         <span
                           className={`mt-1 h-2 w-2 rounded-full ${n.type === "order"
-                            ? "bg-emerald-600"
-                            : n.type === "stock"
-                              ? "bg-red-500"
-                              : "bg-blue-500"
+                              ? "bg-emerald-600"
+                              : n.type === "stock"
+                                ? "bg-red-500"
+                                : "bg-blue-500"
                             }`}
                         />
                         <div className="flex-1">
-                          <p className="text-sm text-gray-800 line-clamp-1">{n.title}</p>
-                          {n.time ? <p className="text-xs text-gray-500 mt-0.5">{n.time}</p> : null}
+                          <p className="text-sm text-gray-800 line-clamp-1">
+                            {n.title}
+                          </p>
+                          {n.time ? (
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {n.time}
+                            </p>
+                          ) : null}
                         </div>
                       </Link>
                     </li>
@@ -238,7 +279,8 @@ const HeaderAdmin = () => {
               ref={userBtnRef}
               onClick={() => setOpenUser((s) => !s)}
               className="h-9 w-9 rounded-full bg-gradient-to-tr from-gray-200 to-gray-300 ring-2 ring-white flex items-center justify-center text-sm font-semibold text-gray-700 hover:brightness-95"
-              title={`${users?.first_name ?? ""} ${users?.last_name ?? ""}`.trim() || users?.email || "บัญชีผู้ใช้"}
+              title={`${users?.first_name ?? ""} ${users?.last_name ?? ""
+                }`.trim() || users?.email || "บัญชีผู้ใช้"}
             >
               {initials}
             </button>
@@ -250,14 +292,18 @@ const HeaderAdmin = () => {
               >
                 <div className="px-4 py-3 border-b bg-gray-50">
                   <div className="text-sm font-semibold text-gray-900">
-                    {(users?.first_name || "") + " " + (users?.last_name || "")}
+                    {(users?.first_name || "") +
+                      " " +
+                      (users?.last_name || "")}
                   </div>
-                  <div className="text-xs text-gray-500 truncate">{users?.email}</div>
+                  <div className="text-xs text-gray-500 truncate">
+                    {users?.email}
+                  </div>
                 </div>
 
                 <div className="py-1">
                   <Link
-                    to={`/user`}
+                    to="/user"
                     className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                     onClick={() => setOpenUser(false)}
                   >
@@ -267,7 +313,11 @@ const HeaderAdmin = () => {
 
                 <div className="border-t">
                   <button
-                    onClick={() => { setOpenUser(false); handleLogout(); }}
+                    onClick={() => {
+                      setOpenUser(false);
+                      actionLogout();
+                      navigate("/login");
+                    }}
                     className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                   >
                     <LogOut className="h-4 w-4" /> ออกจากระบบ

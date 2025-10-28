@@ -1,7 +1,7 @@
 import axios from "axios";
 
 export const createProduct = async (token, form) => {
-    return axios.post('http://localhost:5001/api/product', form, {
+    return axios.post('http://localhost:5002/api/product', form, {
         headers: {
             Authorization: `Bearer ${token}`
         }
@@ -9,11 +9,11 @@ export const createProduct = async (token, form) => {
 }
 
 export const listProduct = async (count = 1) => {
-    return axios.get('http://localhost:5001/api/products/' + count,)
+    return axios.get('http://localhost:5002/api/products/' + count,)
 }
 
 export const readProduct = async (token, id) => {
-    return axios.get('http://localhost:5001/api/product/' + id, {
+    return axios.get('http://localhost:5002/api/product/' + id, {
         headers: {
             Authorization: `Bearer ${token}`
         }
@@ -22,7 +22,7 @@ export const readProduct = async (token, id) => {
 
 
 export const deleteProduct = async (token, id) => {
-    return axios.delete('http://localhost:5001/api/product/' + id, {
+    return axios.delete('http://localhost:5002/api/product/' + id, {
         headers: {
             Authorization: `Bearer ${token}`
         }
@@ -30,7 +30,7 @@ export const deleteProduct = async (token, id) => {
 }
 
 export const updateProduct = async (token, id, form) => {
-    return axios.put('http://localhost:5001/api/product/' + id, form, {
+    return axios.put('http://localhost:5002/api/product/' + id, form, {
         headers: {
             Authorization: `Bearer ${token}`
         }
@@ -38,7 +38,7 @@ export const updateProduct = async (token, id, form) => {
 }
 
 export const uploadFile = async (token, form) => {
-    return axios.post('http://localhost:5001/api/images', {
+    return axios.post('http://localhost:5002/api/images', {
         image: form
     }, {
         headers: {
@@ -48,7 +48,7 @@ export const uploadFile = async (token, form) => {
 }
 
 export const removeFile = async (token, public_id) => {
-    return axios.post('http://localhost:5001/api/removeimages', {
+    return axios.post('http://localhost:5002/api/removeimages', {
         public_id
     }, {
         headers: {
@@ -59,6 +59,6 @@ export const removeFile = async (token, public_id) => {
 
 
 export const searchFilters = async (arg) => {
-    return axios.post('http://localhost:5001/api/search/filters',arg)
+    return axios.post('http://localhost:5002/api/search/filters',arg)
 }
 

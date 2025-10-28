@@ -3,9 +3,18 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
-import { Mail, KeyRound, User2, Phone as PhoneIcon, IdCard as IdCardIcon, TimerReset } from "lucide-react";
+import {
+  Mail,
+  KeyRound,
+  User2,
+  Phone as PhoneIcon,
+  IdCard as IdCardIcon,
+  TimerReset,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5001/api";
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5002/api";
 const onlyDigits = (s) => String(s || "").replace(/\D+/g, "");
 
 // --- format Thai ID for display ---
@@ -24,6 +33,20 @@ function formatThaiID(input) {
   return out;
 }
 
+// เพิ่มใต้ onlyDigits / formatThaiID
+const formatThaiPhone = (input) => {
+  const d = onlyDigits(input).slice(0, 10);
+  const a = d.slice(0, 3);
+  const b = d.slice(3, 6);
+  const c = d.slice(6, 10);
+  let out = "";
+  if (a) out = a;
+  if (b) out += (out ? "-" : "") + b;
+  if (c) out += (out ? "-" : "") + c;
+  return out;
+};
+
+
 function Register() {
   const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
@@ -37,6 +60,10 @@ function Register() {
     phone: "",
     id_card: "",
   });
+
+  // toggle show/hide password
+  const [showPw, setShowPw] = useState(false);
+  const [showPw2, setShowPw2] = useState(false);
 
   // OTP states
   const [otp, setOtp] = useState("");
@@ -88,7 +115,7 @@ function Register() {
   };
 
   const handlePhoneChange = (e) => {
-    const v = onlyDigits(e.target.value).slice(0, 10);
+    const v = formatThaiPhone(e.target.value);
     setForm((s) => ({ ...s, phone: v }));
   };
 
@@ -213,7 +240,8 @@ function Register() {
                     type="button"
                     disabled={!canSendOtp}
                     onClick={sendOtp}
-                    className={`px-3 py-2 rounded-lg text-sm font-semibold text-white ${canSendOtp ? "bg-gray-900 hover:bg-black" : "bg-gray-300 cursor-not-allowed"}`}
+                    className={`px-3 py-2 rounded-lg text-sm font-semibold text-white ${canSendOtp ? "bg-gray-900 hover:bg-black" : "bg-gray-300 cursor-not-allowed"
+                      }`}
                   >
                     {sendingOtp ? "กำลังส่ง..." : cooldown > 0 ? `ส่งใหม่ได้ใน ${cooldown}s` : "ส่งรหัส OTP"}
                   </button>
@@ -262,30 +290,49 @@ function Register() {
                 <div className="mt-1 relative">
                   <KeyRound className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
-                    className="w-full rounded-lg border px-3 py-2 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    className="w-full rounded-lg border px-3 py-2 pl-9 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
                     onChange={handleOnChange}
                     name="password"
-                    type="password"
+                    type={showPw ? "text" : "password"}
                     value={form.password}
                     placeholder="อย่างน้อย 6 ตัวอักษร"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw((s) => !s)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-gray-100 text-gray-600"
+                    aria-label={showPw ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                    title={showPw ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                  >
+                    {showPw ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
                 </div>
                 {isPwInvalid && <div className="mt-1 text-xs text-red-600">รหัสผ่านอย่างน้อย 6 ตัวอักษร</div>}
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700">ยืนยันรหัสผ่าน</label>
                 <div className="mt-1 relative">
                   <KeyRound className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
-                    className="w-full rounded-lg border px-3 py-2 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    className="w-full rounded-lg border px-3 py-2 pl-9 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
                     onChange={handleOnChange}
                     name="confirmPassword"
-                    type="password"
+                    type={showPw2 ? "text" : "password"}
                     value={form.confirmPassword}
                     placeholder="พิมพ์ซ้ำรหัสผ่าน"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw2((s) => !s)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-gray-100 text-gray-600"
+                    aria-label={showPw2 ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                    title={showPw2 ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                  >
+                    {showPw2 ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
                 </div>
                 {isPwMismatch && <div className="mt-1 text-xs text-red-600">รหัสผ่านไม่ตรงกัน</div>}
               </div>
@@ -333,9 +380,9 @@ function Register() {
                   name="phone"
                   type="tel"
                   inputMode="numeric"
-                  maxLength={10}
-                  value={phoneDigits}
-                  placeholder="เช่น 0812345678"
+                  maxLength={12}                // 3-3-4 => 12 ตัวอักษร (รวมขีด)
+                  value={form.phone}            // แสดงแบบมีขีด
+                  placeholder="เช่น 081-234-5678"
                   required
                 />
               </div>

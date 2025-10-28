@@ -1,6 +1,6 @@
 // client/src/api/adminUsers.jsx
 import axios from "axios";
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5001/api";
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5002/api";
 
 const api = axios.create({ baseURL: API_BASE });
 const auth = (token) => ({ headers: { Authorization: `Bearer ${token}` } });
@@ -19,3 +19,6 @@ export const adminUpdateUserPassword = (token, id, newPassword) =>
 
 export const adminDeleteUser = (token, id) =>
     api.delete(`/admin/users/${id}`, auth(token));
+
+export const getMyStatus = (token) =>
+  api.get('/me/status', { headers: { Authorization: `Bearer ${token}` } });
