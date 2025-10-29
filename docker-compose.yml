@@ -3,32 +3,48 @@ services:
     image: mysql:8.0
     container_name: ku-db
     restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: KrSa1480@
-      MYSQL_DATABASE: Ecom_Shirt01
+
+    # ค่าพวก MYSQL_ROOT_PASSWORD, MYSQL_DATABASE ดึงจากไฟล์ภายนอก
+    # ไฟล์นี้จะไม่ถูก commit (เราใส่ db.env ใน .gitignore)
+    env_file:
+      - ./db.env
+
     ports:
+      # ภายใน docker network db จะอยู่พอร์ต 3306 ปกติ
+      # ฝั่ง host (เครื่องคุณ) จะเชื่อมได้ผ่าน localhost:3307
       - "3307:3306"
-    command: [
-      "--character-set-server=utf8mb4",
-      "--collation-server=utf8mb4_unicode_ci"
-    ]
+
+    command:
+      [
+        "--character-set-server=utf8mb4",
+        "--collation-server=utf8mb4_unicode_ci"
+      ]
+
     volumes:
+      # ชื่อ volume ถาวรสำหรับเก็บข้อมูลจริงของ MySQL
       - db_data:/var/lib/mysql
 
   phpmyadmin:
     image: phpmyadmin/phpmyadmin:latest
     container_name: ku-pma
     restart: always
-    ports:
-      - "8080:80"
+    depends_on:
+      - db
+
+    # phpMyAdmin ก็จะอ่านค่าจาก db.env เช่นกัน
+    env_file:
+      - ./db.env
+
     environment:
       PMA_HOST: db
       PMA_PORT: 3306
       PMA_USER: root
-      PMA_PASSWORD: KrSa1480@
-    depends_on:
-      - db
+      # PMA_PASSWORD ไม่ต้องใส่ตรงนี้แล้ว เพราะมันจะมากับ db.env อยู่แล้ว
 
+    ports:
+      # เปิด phpMyAdmin ที่ http://localhost:8080
+      # หมายเหตุ: ถ้าเคยจะ deploy จริง ต้องระวังอย่า expose แบบนี้ใน public server
+      - "8080:80"
 
   backend:
     build:
@@ -36,14 +52,23 @@ services:
       dockerfile: Dockerfile
     container_name: ku-backend
     restart: always
-    env_file:
-      - ./server/.env.docker
     depends_on:
       - db
+
+    # ตัวแปรลับฝั่ง backend (JWT SECRET, SMTP, Cloudinary, DATABASE_URL ฯลฯ)
+    # จะมาจากไฟล์ server/.env.docker ซึ่งคุณจะไม่ commit
+    env_file:
+      - ./server/.env.docker
+
     ports:
+      # ภายใน container backend ฟังที่ 5001
+      # คุณเรียกจากเครื่องด้วย http://localhost:5002
       - "5002:5001"
+
     volumes:
+      # ให้แก้โค้ดในเครื่องแล้ว container รีเฟรชทันที (สะดวก dev)
       - ./server:/app
+      # อย่าทับ node_modules ข้างใน container ด้วยของ host
       - /app/node_modules
 
   frontend:
@@ -54,12 +79,18 @@ services:
     restart: always
     depends_on:
       - backend
+
     ports:
+      # React/Vite dev server: http://localhost:5173
       - "5173:5173"
+
     volumes:
+      # live reload โค้ดฝั่ง frontend
       - ./client:/app
       - /app/node_modules
+
     environment:
+      # ให้ frontend รู้ว่าควรยิง API ไปที่ backend proxy บน host
       VITE_API_URL: http://localhost:5002/api
 
 volumes:

@@ -1,21 +1,43 @@
-# --- environment secrets ---
+# --- secrets / env ---
+db.env
 server/.env
-server/.env.docker
 server/.env.local
+server/.env.docker
+server/.env.production
+server/.env.*.local
 client/.env
 client/.env.local
-client/docker-compose.yml
+client/.env.production
+client/.env.*.local
+*.env
+*.env.local
 
-# --- node_modules (ไม่ต้องใส่ใน repo) ---
-server/node_modules
-client/node_modules
+# --- node_modules ---
+server/node_modules/
+client/node_modules/
+node_modules/
 
-# --- Docker volumes / DB data ---
-db_data/
-*.sql
-
-# --- misc build stuff (optional safety nets) ---
-*.log
-npm-debug.log*
+# --- build outputs ---
+client/dist/
+client/build/
 dist/
 build/
+
+# --- DB data / dumps ---
+db_data/
+*.sql
+*.dump.sql
+*.backup.sql
+
+# --- logs ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- editor / OS trash ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
