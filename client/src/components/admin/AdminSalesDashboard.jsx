@@ -26,8 +26,6 @@ import {
     LabelList,
     Label,
     Legend,
-    ComposedChart,
-    Line,
 } from "recharts";
 
 /* ================= helpers ================= */
@@ -163,6 +161,21 @@ const niceMax = (arr, key) => {
     return Math.ceil(up / pow) * pow;
 };
 
+// สำหรับกราฟแบบแยกแท่งต่อประเภท: หา max จากทุกประเภท
+const niceMaxMulti = (rows, typeKeys) => {
+    let mx = 0;
+    for (const r of rows || []) {
+        for (const t of typeKeys || []) {
+            const v = Number(r?.[t] || 0);
+            if (v > mx) mx = v;
+        }
+    }
+    if (mx === 0) return 10;
+    const up = mx * 1.1;
+    const pow = Math.pow(10, Math.floor(Math.log10(up)));
+    return Math.ceil(up / pow) * pow;
+};
+
 const Kpi = ({ label, value, icon, trend }) => (
     <Card>
         <div className="p-4 flex items-center gap-3">
@@ -176,7 +189,7 @@ const Kpi = ({ label, value, icon, trend }) => (
     </Card>
 );
 
-/* ===== Label: ยอดบาทบนแท่งเดี่ยว (โหมด total) ===== */
+/* ===== Label: ยอดบาทบนหัวแท่ง (โหมด total) ===== */
 const BarValueTHBLabelTop = (props) => {
     const { value, x, y, width } = props || {};
     const v = Number(value || 0);
@@ -197,34 +210,27 @@ const BarValueTHBLabelTop = (props) => {
     );
 };
 
-/* ===== helpers (Stacked) : หาแท่งบนสุด + shape มุมมน ===== */
-const topTypeForPayload = (payload, typeKeys) => {
-    for (let i = typeKeys.length - 1; i >= 0; i--) {
-        const t = typeKeys[i];
-        if (Number(payload?.[t] || 0) > 0) return t;
-    }
-    return null;
-};
+/* ===== Label: ยอดบาทบนหัวแท่ง (โหมด byType, ใช้ font เล็กกว่านิด) ===== */
+const BarValueTHBLabelTopSmall = (props) => {
+    const { value, x, y, width } = props || {};
+    const v = Number(value || 0);
+    if (v <= 0) return null;
 
-const makeTopRoundedBarShape = (type, color, typeKeys) => (props) => {
-    const { x = 0, y = 0, width = 0, height = 0, payload } = props || {};
-    if (height <= 0 || width <= 0) return null;
+    const cx = (x ?? 0) + (width ?? 0) / 2;
+    const cy = (y ?? 0) - 6;
 
-    const isTop = topTypeForPayload(payload, typeKeys) === type;
-    const r = 10;
-
-    if (!isTop) return <rect x={x} y={y} width={width} height={height} fill={color} />;
-
-    const path = `
-    M ${x},${y + height}
-    L ${x},${y + r}
-    Q ${x},${y} ${x + r},${y}
-    L ${x + width - r},${y}
-    Q ${x + width},${y} ${x + width},${y + r}
-    L ${x + width},${y + height}
-    Z
-  `;
-    return <path d={path} fill={color} />;
+    return (
+        <text
+            x={cx}
+            y={cy}
+            textAnchor="middle"
+            fontSize={11}
+            fill="#334155"
+            style={{ fontVariantNumeric: "tabular-nums" }}
+        >
+            {THB(v)}
+        </text>
+    );
 };
 
 /* =============== Main =============== */
@@ -343,7 +349,8 @@ export default function AdminSalesDashboard() {
         const orderCount = successOrders.length;
         const revenue = successOrders.reduce((s, od) => s + orderRevenue(od), 0);
         const items = successOrders.reduce(
-            (s, od) => s + (od?.products || []).reduce((x, p) => x + Number(p?.count || 0), 0),
+            (s, od) =>
+                s + (od?.products || []).reduce((x, p) => x + Number(p?.count || 0), 0),
             0
         );
         return { orderCount, revenue, items };
@@ -355,18 +362,22 @@ export default function AdminSalesDashboard() {
         if (!d) return "-";
         const p = datePartsTH(d);
         if (gran === "day")
-            return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+            return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(
+                2,
+                "0"
+            )}`;
         if (gran === "month") return `${p.year}-${String(p.month).padStart(2, "0")}`;
         return `${p.year}`;
     };
 
-    // ยอดขาย + จำนวนชิ้น + 2 ชื่อสินค้าท็อปต่อช่วงเวลา (ใช้ tooltip ของโหมด total)
+    // ยอดขาย + จำนวนชิ้น + 2 ชื่อสินค้าท็อปต่อช่วงเวลา (tooltip โหมด total)
     const revenueQtyByPeriod = useMemo(() => {
         const map = new Map();
 
         for (const od of successOrders) {
             const k = keyForThai(od?.createdAt);
-            const cur = map.get(k) || { x: k, total: 0, qty: 0, titlesMap: new Map() };
+            const cur =
+                map.get(k) || { x: k, total: 0, qty: 0, titlesMap: new Map() };
 
             for (const line of od?.products || []) {
                 const price = Number(line?.price) || 0;
@@ -375,7 +386,10 @@ export default function AdminSalesDashboard() {
 
                 cur.total += price * count;
                 cur.qty += count;
-                cur.titlesMap.set(title, (cur.titlesMap.get(title) || 0) + price * count);
+                cur.titlesMap.set(
+                    title,
+                    (cur.titlesMap.get(title) || 0) + price * count
+                );
             }
             map.set(k, cur);
         }
@@ -399,8 +413,8 @@ export default function AdminSalesDashboard() {
             .sort((a, b) => a.x.localeCompare(b.x));
     }, [successOrders, gran]);
 
-    /* ====== ยอดขายตามประเภทเสื้อ (Stacked by type) ====== */
-    const stackedByType = useMemo(() => {
+    /* ====== ยอดขายตามประเภทเสื้อ (แยกแท่งต่อประเภท) ====== */
+    const groupedByType = useMemo(() => {
         // periodKey -> { x, types: Map<type, {revenue, qty}> }
         const per = new Map();
         const allTypesSet = new Set();
@@ -413,7 +427,6 @@ export default function AdminSalesDashboard() {
                 const price = Number(line?.price) || 0;
                 const count = Number(line?.count ?? line?.quantity ?? 0) || 0;
 
-                // บังคับประเภทเสมอ
                 const rawType = reviewTypeFromTitle(line?.productTitle);
                 const type = rawType && rawType.trim() ? rawType : "อื่น ๆ";
 
@@ -428,23 +441,18 @@ export default function AdminSalesDashboard() {
             per.set(k, cur);
         }
 
-        // เรียงคีย์ประเภท
         const typeKeys = Array.from(allTypesSet.values()).sort((a, b) =>
             a.localeCompare(b, "th")
         );
 
-        // แปลงเป็นแถวข้อมูลสำหรับ Recharts + คำนวณ total จาก sum ของทุกประเภท
         const rows = Array.from(per.values())
             .map((o) => {
                 const base = { x: o.x };
-                let total = 0;
                 typeKeys.forEach((t) => {
                     const v = o.types.get(t) || { revenue: 0, qty: 0 };
                     base[t] = v.revenue;
                     base[`${t}__qty`] = v.qty;
-                    total += v.revenue;
                 });
-                base.total = total;
                 return base;
             })
             .sort((a, b) => String(a.x).localeCompare(String(b.x)));
@@ -468,12 +476,15 @@ export default function AdminSalesDashboard() {
     const typeColorMap = useMemo(
         () =>
             Object.fromEntries(
-                (stackedByType.typeKeys || []).map((t, i) => [t, TYPE_COLORS[i % TYPE_COLORS.length]])
+                (groupedByType.typeKeys || []).map((t, i) => [
+                    t,
+                    TYPE_COLORS[i % TYPE_COLORS.length],
+                ])
             ),
-        [stackedByType.typeKeys]
+        [groupedByType.typeKeys]
     );
 
-    /* ---------- สัดส่วนสถานะ (ใช้ใน Pie) ---------- */
+    /* ---------- สัดส่วนสถานะ ---------- */
     const statusPie = useMemo(() => {
         const map = new Map();
         for (const od of filtered) {
@@ -487,50 +498,57 @@ export default function AdminSalesDashboard() {
         }));
     }, [filtered]);
 
-    /* ---------- Top Products (ใส่กลับมา) ---------- */
+    /* ---------- Top Products ---------- */
     const topProducts = useMemo(() => {
         const map = new Map();
         for (const od of successOrders) {
             for (const line of od?.products || []) {
                 const key = line?.productTitle || `SKU-${line?.variantId}`;
-                const prev = map.get(key) || { title: key, qty: 0, revenue: 0 };
+                const prev =
+                    map.get(key) || { title: key, qty: 0, revenue: 0 };
                 prev.qty += Number(line?.count || 0);
-                prev.revenue += Number(line?.price || 0) * Number(line?.count || 0);
+                prev.revenue +=
+                    Number(line?.price || 0) *
+                    Number(line?.count || 0);
                 map.set(key, prev);
             }
         }
-        return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
+        return Array.from(map.values())
+            .sort((a, b) => b.revenue - a.revenue)
+            .slice(0, 10);
     }, [successOrders]);
 
-    /* ---------- Custom Tooltip (stacked) : ไม่มีจุดสีหน้า "ราคารวม" ---------- */
-    const StackedTooltip = ({ active, payload, label }) => {
+    /* ---------- Tooltip โหมด "ตามประเภทเสื้อ" (แยกแท่ง) ---------- */
+    const GroupedTooltip = ({ active, payload, label }) => {
         if (!active || !payload || payload.length === 0) return null;
 
-        // ใช้เฉพาะแท่ง (ตัดเส้น dataKey="total") + ซ่อนค่า 0
-        const barItems = (payload || [])
-            .filter((it) => it.dataKey !== "total" && Number(it.value || 0) > 0)
+        const sortedItems = [...payload]
+            .filter((it) => Number(it.value || 0) > 0)
             .sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
 
-        const totalBar = barItems.reduce((s, it) => s + Number(it.value || 0), 0);
-        const totalQty = barItems.reduce(
-            (s, it) => s + Number(it?.payload?.[`${it.name}__qty`] || 0),
+        const totalBar = sortedItems.reduce(
+            (s, it) => s + Number(it.value || 0),
             0
         );
+        const totalQty = sortedItems.reduce((s, it) => {
+            const qty = Number(it?.payload?.[`${it.name}__qty`] || 0) || 0;
+            return s + qty;
+        }, 0);
 
         return (
             <div
                 className="rounded-lg bg-white/95 shadow border p-2.5"
                 style={{ backdropFilter: "saturate(120%) blur(2px)" }}
             >
-                <div className="font-medium mb-1">{fmtThaiPeriodLabel(label, gran)}</div>
+                <div className="font-medium mb-1">
+                    {fmtThaiPeriodLabel(label, gran)}
+                </div>
 
-                {/* ราคารวม — ไม่มีจุดสี */}
                 <div className="mb-1 text-sm font-medium">
                     ราคารวม : {THB(totalBar)} • {nfmt(totalQty)} ชิ้น
                 </div>
 
-                {/* รายการตามประเภท (มีจุดสีตาม Recharts เฉพาะบรรทัดประเภท) */}
-                {barItems.map((it) => {
+                {sortedItems.map((it) => {
                     const qty = Number(it?.payload?.[`${it.name}__qty`] || 0);
                     return (
                         <div key={it.name} className="flex items-center gap-2">
@@ -548,6 +566,25 @@ export default function AdminSalesDashboard() {
         );
     };
 
+    /* ---------- Tooltip โหมด "ยอดขายรวม" ---------- */
+    const TotalTooltip = (props) => {
+        const { active, payload, label } = props || {};
+        if (!active || !payload || payload.length === 0) return null;
+        const p0 = payload[0];
+        const qty = p0?.payload?.qty ?? 0;
+        const title = p0?.payload?.titles ? ` • ${p0.payload.titles}` : "";
+        return (
+            <div className="rounded-lg bg-white/95 shadow border p-2.5">
+                <div className="font-medium mb-1">
+                    {fmtThaiPeriodLabel(label, gran)}
+                    {title}
+                </div>
+                <div className="text-sm">
+                    ยอดขาย : {THB(p0?.value || 0)} • {nfmt(qty)} ชิ้น
+                </div>
+            </div>
+        );
+    };
 
     /* =============== UI =============== */
     return (
@@ -574,7 +611,11 @@ export default function AdminSalesDashboard() {
                             <button
                                 key={k}
                                 onClick={() => setChartMode(k)}
-                                className={`px-3 py-2 text-sm ${chartMode === k ? "bg-indigo-600 text-white" : "bg-white hover:bg-gray-50"}`}
+                                className={`px-3 py-2 text-sm ${
+                                    chartMode === k
+                                        ? "bg-indigo-600 text-white"
+                                        : "bg-white hover:bg-gray-50"
+                                }`}
                                 title={label}
                                 type="button"
                             >
@@ -593,7 +634,11 @@ export default function AdminSalesDashboard() {
                             <button
                                 key={k}
                                 onClick={() => setGran(k)}
-                                className={`px-3 py-2 text-sm ${gran === k ? "bg-indigo-600 text-white" : "bg-white hover:bg-gray-50"}`}
+                                className={`px-3 py-2 text-sm ${
+                                    gran === k
+                                        ? "bg-indigo-600 text-white"
+                                        : "bg-white hover:bg-gray-50"
+                                }`}
                                 title={label}
                                 type="button"
                             >
@@ -608,7 +653,9 @@ export default function AdminSalesDashboard() {
                             type="date"
                             className="px-3 py-2 w-[150px] border rounded-lg"
                             value={range.start}
-                            onChange={(e) => setRange((r) => ({ ...r, start: e.target.value }))}
+                            onChange={(e) =>
+                                setRange((r) => ({ ...r, start: e.target.value }))
+                            }
                             title="วันที่เริ่ม"
                         />
                         <span className="text-gray-500">ถึง</span>
@@ -616,7 +663,9 @@ export default function AdminSalesDashboard() {
                             type="date"
                             className="px-3 py-2 w-[150px] border rounded-lg"
                             value={range.end}
-                            onChange={(e) => setRange((r) => ({ ...r, end: e.target.value }))}
+                            onChange={(e) =>
+                                setRange((r) => ({ ...r, end: e.target.value }))
+                            }
                             title="วันที่สิ้นสุด"
                         />
                     </div>
@@ -629,15 +678,29 @@ export default function AdminSalesDashboard() {
                     <Loader2 className="animate-spin h-6 w-6 mr-2" /> กำลังโหลด…
                 </div>
             )}
-            {err && !loading && <div className="rounded-xl border bg-red-50 text-red-700 p-4">{err}</div>}
+            {err && !loading && (
+                <div className="rounded-xl border bg-red-50 text-red-700 p-4">{err}</div>
+            )}
 
             {!loading && !err && (
                 <>
                     {/* KPIs */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <Kpi label="ยอดขายรวม" value={<MoneyTight text={THB(kpis.revenue)} />} icon={<TrendingUp className="h-5 w-5" />} />
-                        <Kpi label="จำนวนออเดอร์สำเร็จ" value={nfmt(kpis.orderCount)} icon={<ShoppingCart className="h-5 w-5" />} />
-                        <Kpi label="จำนวนชิ้นที่ขาย" value={nfmt(kpis.items)} icon={<Package className="h-5 w-5" />} />
+                        <Kpi
+                            label="ยอดขายรวม"
+                            value={<MoneyTight text={THB(kpis.revenue)} />}
+                            icon={<TrendingUp className="h-5 w-5" />}
+                        />
+                        <Kpi
+                            label="จำนวนออเดอร์สำเร็จ"
+                            value={nfmt(kpis.orderCount)}
+                            icon={<ShoppingCart className="h-5 w-5" />}
+                        />
+                        <Kpi
+                            label="จำนวนชิ้นที่ขาย"
+                            value={nfmt(kpis.items)}
+                            icon={<Package className="h-5 w-5" />}
+                        />
                     </div>
 
                     {/* Charts */}
@@ -646,13 +709,25 @@ export default function AdminSalesDashboard() {
                             <CardHeader
                                 title={
                                     chartMode === "total"
-                                        ? `ยอดขายแบบ${gran === "day" ? "รายวัน" : gran === "month" ? "รายเดือน" : "รายปี"}`
-                                        : `ยอดขายตามประเภทเสื้อ (${gran === "day" ? "รายวัน" : gran === "month" ? "รายเดือน" : "รายปี"})`
+                                        ? `ยอดขายแบบ${
+                                              gran === "day"
+                                                  ? "รายวัน"
+                                                  : gran === "month"
+                                                  ? "รายเดือน"
+                                                  : "รายปี"
+                                          }`
+                                        : `ยอดขายตามประเภทเสื้อ (${
+                                              gran === "day"
+                                                  ? "รายวัน"
+                                                  : gran === "month"
+                                                  ? "รายเดือน"
+                                                  : "รายปี"
+                                          })`
                                 }
                                 subtitle={
                                     chartMode === "total"
                                         ? "แกน X = ช่วงเวลา • แกน Y = ยอดขาย(บาท) • ตัวเลข (บาท) อยู่บนหัวแท่ง"
-                                        : "Stacked Bar: แยกสีตามประเภทเสื้อ • ป้ายบนยอดแท่งแสดง 'ราคารวม' ต่อช่วง • Tooltip โชว์เฉพาะประเภทที่ยอด > 0"
+                                        : "Bar แยกสีและแท่งต่อประเภทเสื้อในช่วงเวลาเดียวกัน • Tooltip โชว์ยอดแต่ละประเภท + รวมทั้งหมด • ตัวเลขบนหัวแท่งคือยอดขายของประเภทนั้น"
                                 }
                                 icon={<LineChartIcon className="h-5 w-5 text-indigo-600" />}
                             />
@@ -661,126 +736,203 @@ export default function AdminSalesDashboard() {
                             {chartMode === "total" && (
                                 <div className="p-4 h-96">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={revenueQtyByPeriod} margin={{ top: 48, right: 24, bottom: 28, left: 56 }} barCategoryGap="40%">
+                                        <BarChart
+                                            data={revenueQtyByPeriod}
+                                            margin={{
+                                                top: 48,
+                                                right: 24,
+                                                bottom: 28,
+                                                left: 56,
+                                            }}
+                                            barCategoryGap="40%"
+                                        >
                                             <CartesianGrid strokeDasharray="3 3" />
                                             <XAxis
                                                 dataKey="x"
                                                 tick={{ fontSize: 12 }}
                                                 tickMargin={10}
                                                 height={36}
-                                                tickFormatter={(v) => fmtThaiPeriodLabel(v, gran)}
+                                                tickFormatter={(v) =>
+                                                    fmtThaiPeriodLabel(v, gran)
+                                                }
                                             >
                                                 <Label
-                                                    value={gran === "day" ? "วันที่ (ไทย)" : gran === "month" ? "เดือน (ไทย)" : "ปี"}
+                                                    value={
+                                                        gran === "day"
+                                                            ? "วันที่ (ไทย)"
+                                                            : gran === "month"
+                                                            ? "เดือน (ไทย)"
+                                                            : "ปี"
+                                                    }
                                                     position="insideBottom"
                                                     dy={18}
-                                                    style={{ fill: "#64748b", fontSize: 12 }}
+                                                    style={{
+                                                        fill: "#64748b",
+                                                        fontSize: 12,
+                                                    }}
                                                 />
                                             </XAxis>
-                                            <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => kfmt(v)} domain={[0, niceMax(revenueQtyByPeriod, "total")]}>
+                                            <YAxis
+                                                tick={{ fontSize: 12 }}
+                                                tickFormatter={(v) => kfmt(v)}
+                                                domain={[
+                                                    0,
+                                                    niceMax(
+                                                        revenueQtyByPeriod,
+                                                        "total"
+                                                    ),
+                                                ]}
+                                            >
                                                 <Label
                                                     value="ยอดขาย (บาท)"
                                                     angle={-90}
                                                     position="insideLeft"
-                                                    style={{ fill: "#64748b", fontSize: 12, textAnchor: "middle" }}
+                                                    style={{
+                                                        fill: "#64748b",
+                                                        fontSize: 12,
+                                                        textAnchor: "middle",
+                                                    }}
                                                     dy={-10}
                                                     dx={-26}
                                                 />
                                             </YAxis>
-                                            <Tooltip
-                                                formatter={(value, name, props) => {
-                                                    const qty = props?.payload?.qty ?? 0;
-                                                    return [`${THB(value ?? 0)} • ${nfmt(qty)} ชิ้น`, "ยอดขาย"];
-                                                }}
-                                                labelFormatter={(label, payload) => {
-                                                    const p = payload?.[0]?.payload;
-                                                    const title = p?.titles ? ` • ${p.titles}` : "";
-                                                    return `${fmtThaiPeriodLabel(label, gran)}${title}`;
-                                                }}
-                                            />
-                                            <Bar dataKey="total" fill="#4f46e5" radius={[10, 10, 4, 4]} maxBarSize={44} isAnimationActive={false}>
-                                                <LabelList dataKey="total" content={(p) => <BarValueTHBLabelTop {...p} />} />
+                                            <Tooltip content={<TotalTooltip />} />
+                                            <Bar
+                                                dataKey="total"
+                                                fill="#4f46e5"
+                                                radius={[10, 10, 4, 4]}
+                                                maxBarSize={44}
+                                                isAnimationActive={false}
+                                            >
+                                                <LabelList
+                                                    dataKey="total"
+                                                    content={(p) => (
+                                                        <BarValueTHBLabelTop {...p} />
+                                                    )}
+                                                />
                                             </Bar>
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
                             )}
 
-                            {/* ===== โหมด: ยอดขายตามประเภทเสื้อ (Stacked) ===== */}
+                            {/* ===== โหมด: ยอดขายตามประเภทเสื้อ (แยกแท่ง ไม่ซ้อน) ===== */}
                             {chartMode === "byType" && (
                                 <div className="p-4 h-96">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <ComposedChart data={stackedByType.rows} margin={{ top: 72, right: 24, bottom: 28, left: 56 }} barCategoryGap="40%">
+                                        <BarChart
+                                            data={groupedByType.rows}
+                                            margin={{
+                                                top: 48,
+                                                right: 24,
+                                                bottom: 28,
+                                                left: 56,
+                                            }}
+                                            barCategoryGap="20%" // ระยะห่างกลุ่ม
+                                            barGap={4} // ระยะห่างแท่งในกลุ่ม
+                                        >
                                             <CartesianGrid strokeDasharray="3 3" />
                                             <XAxis
                                                 dataKey="x"
                                                 tick={{ fontSize: 12 }}
                                                 tickMargin={10}
                                                 height={36}
-                                                tickFormatter={(v) => fmtThaiPeriodLabel(v, gran)}
+                                                tickFormatter={(v) =>
+                                                    fmtThaiPeriodLabel(v, gran)
+                                                }
                                             >
                                                 <Label
-                                                    value={gran === "day" ? "วันที่ (ไทย)" : gran === "month" ? "เดือน (ไทย)" : "ปี"}
+                                                    value={
+                                                        gran === "day"
+                                                            ? "วันที่ (ไทย)"
+                                                            : gran === "month"
+                                                            ? "เดือน (ไทย)"
+                                                            : "ปี"
+                                                    }
                                                     position="insideBottom"
                                                     dy={18}
-                                                    style={{ fill: "#64748b", fontSize: 12 }}
+                                                    style={{
+                                                        fill: "#64748b",
+                                                        fontSize: 12,
+                                                    }}
                                                 />
                                             </XAxis>
                                             <YAxis
                                                 tick={{ fontSize: 12 }}
                                                 tickFormatter={(v) => kfmt(v)}
-                                                domain={[0, niceMax(stackedByType.rows.map((r) => ({ total: r.total })), "total")]}
+                                                domain={[
+                                                    0,
+                                                    niceMaxMulti(
+                                                        groupedByType.rows,
+                                                        groupedByType.typeKeys
+                                                    ),
+                                                ]}
                                             >
                                                 <Label
                                                     value="ยอดขาย (บาท)"
                                                     angle={-90}
                                                     position="insideLeft"
-                                                    style={{ fill: "#64748b", fontSize: 12, textAnchor: "middle" }}
+                                                    style={{
+                                                        fill: "#64748b",
+                                                        fontSize: 12,
+                                                        textAnchor: "middle",
+                                                    }}
                                                     dy={-10}
                                                     dx={-26}
                                                 />
                                             </YAxis>
 
-                                            {/* Tooltip แบบกำหนดเอง */}
-                                            <Tooltip content={<StackedTooltip />} />
+                                            {/* Tooltip แบบกำหนดเองสำหรับกราฟแบบแบ่งแท่ง */}
+                                            <Tooltip content={<GroupedTooltip />} />
 
-                                            <Legend layout="horizontal" verticalAlign="top" align="center" iconType="circle" iconSize={10} wrapperStyle={{ top: 8, lineHeight: "18px" }} />
+                                            <Legend
+                                                layout="horizontal"
+                                                verticalAlign="top"
+                                                align="center"
+                                                iconType="circle"
+                                                iconSize={10}
+                                                wrapperStyle={{
+                                                    top: 8,
+                                                    lineHeight: "18px",
+                                                }}
+                                            />
 
-                                            {/* แท่งซ้อนตามประเภท + มุมมนเฉพาะก้อนบนสุด */}
-                                            {stackedByType.typeKeys.map((t) => {
-                                                const color = typeColorMap[t];
-                                                const TopShape = makeTopRoundedBarShape(t, color, stackedByType.typeKeys);
-                                                return (
-                                                    <Bar key={t} dataKey={t} name={t} stackId="a" fill={color} isAnimationActive={false} shape={TopShape} maxBarSize={44} />
-                                                );
-                                            })}
-
-                                            {/* ป้ายราคารวมบนหัวแท่ง ใช้สีของก้อนบนสุด */}
-                                            <Line type="monotone" dataKey="total" stroke="none" name="ราคารวม" legendType="none" dot={false} isAnimationActive={false}>
-                                                <LabelList
-                                                    dataKey="total"
-                                                    position="top"
-                                                    content={({ x = 0, y = 0, value, payload }) => {
-                                                        const v = Number(value || 0);
-                                                        if (v <= 0) return null;
-                                                        const topType = topTypeForPayload(payload, stackedByType.typeKeys);
-                                                        const fill = typeColorMap[topType] || "#334155";
-                                                        return (
-                                                            <text x={x} y={y - 6} textAnchor="middle" fontSize={12} fill={fill} style={{ fontVariantNumeric: "tabular-nums" }}>
-                                                                {THB(v)}
-                                                            </text>
-                                                        );
-                                                    }}
-                                                />
-                                            </Line>
-                                        </ComposedChart>
+                                            {/* วาดแท่งแบบไม่ใช้ stackId -> จะได้แท่งแยกกันตามประเภท */}
+                                            {groupedByType.typeKeys.map((t) => (
+                                                <Bar
+                                                    key={t}
+                                                    dataKey={t}
+                                                    name={t}
+                                                    fill={typeColorMap[t]}
+                                                    isAnimationActive={false}
+                                                    maxBarSize={44}
+                                                    radius={[6, 6, 4, 4]}
+                                                >
+                                                    {/* ป้ายราคาบนหัวแท่ง (บาทของประเภทนั้นเอง) */}
+                                                    <LabelList
+                                                        dataKey={t}
+                                                        content={(p) => (
+                                                            <BarValueTHBLabelTopSmall
+                                                                {...p}
+                                                            />
+                                                        )}
+                                                    />
+                                                </Bar>
+                                            ))}
+                                        </BarChart>
                                     </ResponsiveContainer>
                                 </div>
                             )}
                         </Card>
 
                         <Card>
-                            <CardHeader title="สัดส่วนสถานะออเดอร์" subtitle="ต่อจำนวนออเดอร์ (ช่วงวันที่ไทย)" icon={<PieChartIcon className="h-5 w-5 text-indigo-600" />} />
+                            <CardHeader
+                                title="สัดส่วนสถานะออเดอร์"
+                                subtitle="ต่อจำนวนออเดอร์ (ช่วงวันที่ไทย)"
+                                icon={
+                                    <PieChartIcon className="h-5 w-5 text-indigo-600" />
+                                }
+                            />
                             <div className="p-4">
                                 <div className="h-56">
                                     <ResponsiveContainer width="100%" height="100%">
@@ -792,8 +944,14 @@ export default function AdminSalesDashboard() {
                                                 outerRadius={80}
                                                 paddingAngle={2}
                                                 labelLine={false}
-                                                // ใช้ percent จาก Recharts ไม่อ้าง statusPie ภายนอก
-                                                label={({ cx, cy, midAngle, innerRadius, outerRadius, fill, percent }) => {
+                                                label={({
+                                                    cx,
+                                                    cy,
+                                                    midAngle,
+                                                    outerRadius,
+                                                    fill,
+                                                    percent,
+                                                }) => {
                                                     const RAD = Math.PI / 180;
                                                     const GAP_FROM_ARC = 6;
                                                     const ELBOW_LEN = 10;
@@ -802,43 +960,98 @@ export default function AdminSalesDashboard() {
                                                     const FONT_SIZE = 16;
                                                     const FONT_WEIGHT = 800;
 
-                                                    const pct = Math.max(0, Math.min(100, (percent || 0) * 100));
-                                                    const label = `${pct.toFixed(1)}%`;
+                                                    const pct = Math.max(
+                                                        0,
+                                                        Math.min(
+                                                            100,
+                                                            (percent || 0) * 100
+                                                        )
+                                                    );
+                                                    const label = `${pct.toFixed(
+                                                        1
+                                                    )}%`;
 
                                                     const a = -midAngle * RAD;
                                                     const cos = Math.cos(a);
                                                     const sin = Math.sin(a);
                                                     const isRight = cos >= 0;
 
-                                                    const x1 = cx + (outerRadius + GAP_FROM_ARC) * cos;
-                                                    const y1 = cy + (outerRadius + GAP_FROM_ARC) * sin;
+                                                    const x1 =
+                                                        cx +
+                                                        (outerRadius +
+                                                            GAP_FROM_ARC) *
+                                                            cos;
+                                                    const y1 =
+                                                        cy +
+                                                        (outerRadius +
+                                                            GAP_FROM_ARC) *
+                                                            sin;
 
-                                                    const x2 = cx + (outerRadius + GAP_FROM_ARC + ELBOW_LEN) * cos;
-                                                    const y2 = cy + (outerRadius + GAP_FROM_ARC + ELBOW_LEN) * sin;
+                                                    const x2 =
+                                                        cx +
+                                                        (outerRadius +
+                                                            GAP_FROM_ARC +
+                                                            ELBOW_LEN) *
+                                                            cos;
+                                                    const y2 =
+                                                        cy +
+                                                        (outerRadius +
+                                                            GAP_FROM_ARC +
+                                                            ELBOW_LEN) *
+                                                            sin;
 
-                                                    const x3 = x2 + (isRight ? HORIZ_LEN : -HORIZ_LEN);
+                                                    const x3 =
+                                                        x2 +
+                                                        (isRight
+                                                            ? HORIZ_LEN
+                                                            : -HORIZ_LEN);
                                                     const y3 = y2;
 
-                                                    const tx = x3 + (isRight ? LABEL_PAD : -LABEL_PAD);
+                                                    const tx =
+                                                        x3 +
+                                                        (isRight
+                                                            ? LABEL_PAD
+                                                            : -LABEL_PAD);
                                                     const ty = y3;
 
-                                                    const strokeColor = fill || "#94a3b8";
-                                                    const textColor = fill || "#0f172a";
+                                                    const strokeColor =
+                                                        fill || "#94a3b8";
+                                                    const textColor =
+                                                        fill || "#0f172a";
 
                                                     return (
                                                         <g>
-                                                            <path d={`M ${x1},${y1} L ${x2},${y2} L ${x3},${y3}`} stroke={strokeColor} strokeWidth="2" fill="none" strokeLinecap="round" />
+                                                            <path
+                                                                d={`M ${x1},${y1} L ${x2},${y2} L ${x3},${y3}`}
+                                                                stroke={
+                                                                    strokeColor
+                                                                }
+                                                                strokeWidth="2"
+                                                                fill="none"
+                                                                strokeLinecap="round"
+                                                            />
                                                             <text
                                                                 x={tx}
                                                                 y={ty}
                                                                 stroke="white"
                                                                 strokeWidth="3"
                                                                 fill="white"
-                                                                fontSize={FONT_SIZE}
-                                                                fontWeight={FONT_WEIGHT}
-                                                                textAnchor={isRight ? "start" : "end"}
+                                                                fontSize={
+                                                                    FONT_SIZE
+                                                                }
+                                                                fontWeight={
+                                                                    FONT_WEIGHT
+                                                                }
+                                                                textAnchor={
+                                                                    isRight
+                                                                        ? "start"
+                                                                        : "end"
+                                                                }
                                                                 dominantBaseline="middle"
-                                                                style={{ fontVariantNumeric: "tabular-nums" }}
+                                                                style={{
+                                                                    fontVariantNumeric:
+                                                                        "tabular-nums",
+                                                                }}
                                                             >
                                                                 {label}
                                                             </text>
@@ -846,11 +1059,22 @@ export default function AdminSalesDashboard() {
                                                                 x={tx}
                                                                 y={ty}
                                                                 fill={textColor}
-                                                                fontSize={FONT_SIZE}
-                                                                fontWeight={FONT_WEIGHT}
-                                                                textAnchor={isRight ? "start" : "end"}
+                                                                fontSize={
+                                                                    FONT_SIZE
+                                                                }
+                                                                fontWeight={
+                                                                    FONT_WEIGHT
+                                                                }
+                                                                textAnchor={
+                                                                    isRight
+                                                                        ? "start"
+                                                                        : "end"
+                                                                }
                                                                 dominantBaseline="middle"
-                                                                style={{ fontVariantNumeric: "tabular-nums" }}
+                                                                style={{
+                                                                    fontVariantNumeric:
+                                                                        "tabular-nums",
+                                                                }}
                                                             >
                                                                 {label}
                                                             </text>
@@ -865,21 +1089,23 @@ export default function AdminSalesDashboard() {
                                 {/* legend statuses */}
                                 <div className="mt-3 flex flex-wrap gap-2">
                                     {statusPie.map((s) => (
-                                        <div
-                                            key={s.name}
-                                            className="max-w-full"
-                                        >
+                                        <div key={s.name} className="max-w-full">
                                             <div
                                                 className="flex items-center gap-2 px-2.5 py-1 rounded-lg ring-1 ring-gray-200 bg-white max-w-full"
-                                                title={`${s.name} • ${nfmt(s.value)} รายการ`}
+                                                title={`${s.name} • ${nfmt(
+                                                    s.value
+                                                )} รายการ`}
                                             >
                                                 {/* จุดสี */}
                                                 <span
                                                     className="h-2.5 w-2.5 rounded-full shrink-0"
-                                                    style={{ backgroundColor: s.fill }}
+                                                    style={{
+                                                        backgroundColor:
+                                                            s.fill,
+                                                    }}
                                                 />
 
-                                                {/* ชื่อสถานะ (ตัด ... ได้ถ้ายาว) */}
+                                                {/* ชื่อสถานะ */}
                                                 <span className="flex-1 min-w-0 text-sm truncate text-gray-900 max-w-[12rem] sm:max-w-[16rem]">
                                                     {s.name}
                                                 </span>
@@ -892,8 +1118,6 @@ export default function AdminSalesDashboard() {
                                         </div>
                                     ))}
                                 </div>
-
-
                             </div>
                         </Card>
                     </div>
@@ -901,7 +1125,11 @@ export default function AdminSalesDashboard() {
                     {/* Tables */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <Card>
-                            <CardHeader title="สินค้า Top 10 (ตามยอดขาย)" subtitle="ช่วงวันที่ไทยที่เลือก" icon={<Package className="h-5 w-5 text-indigo-600" />} />
+                            <CardHeader
+                                title="สินค้า Top 10 (ตามยอดขาย)"
+                                subtitle="ช่วงวันที่ไทยที่เลือก"
+                                icon={<Package className="h-5 w-5 text-indigo-600" />}
+                            />
                             <div className="p-4">
                                 {topProducts.length === 0 ? (
                                     <div className="text-sm text-gray-500">ไม่มีข้อมูล</div>
@@ -917,17 +1145,29 @@ export default function AdminSalesDashboard() {
                                             </thead>
                                             <tbody>
                                                 {topProducts.map((p, idx) => (
-                                                    <tr key={p.title} className="border-t">
+                                                    <tr
+                                                        key={p.title}
+                                                        className="border-t"
+                                                    >
                                                         <td className="px-3 py-2">
                                                             <div className="flex items-center gap-2">
-                                                                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100">#{idx + 1}</span>
-                                                                <span className="font-medium truncate max-w-[320px]" title={p.title}>
+                                                                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100">
+                                                                    #{idx + 1}
+                                                                </span>
+                                                                <span
+                                                                    className="font-medium truncate max-w-[320px]"
+                                                                    title={p.title}
+                                                                >
                                                                     {p.title}
                                                                 </span>
                                                             </div>
                                                         </td>
-                                                        <td className="px-3 py-2 text-right">{nfmt(p.qty)}</td>
-                                                        <td className="px-3 py-2 text-right">{THB(p.revenue)}</td>
+                                                        <td className="px-3 py-2 text-right">
+                                                            {nfmt(p.qty)}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right">
+                                                            {THB(p.revenue)}
+                                                        </td>
                                                     </tr>
                                                 ))}
                                             </tbody>
@@ -953,28 +1193,49 @@ export default function AdminSalesDashboard() {
     );
 }
 
-/* ======= แยกย่อยตารางลูกค้า Top เพื่อให้ไฟล์อ่านง่ายขึ้น ======= */
+/* ======= แยกย่อยตารางลูกค้า Top ======= */
 function TopCustomersTable({ customersSource = [] }) {
     const nfmt = (n) => (Number(n) || 0).toLocaleString();
-    const THB = (n) => (Number(n) || 0).toLocaleString("th-TH", { style: "currency", currency: "THB" });
-    const orderRevenue = (od) => (od?.products || []).reduce((s, p) => s + Number(p.price || 0) * Number(p.count || 0), 0);
+    const THB = (n) =>
+        (Number(n) || 0).toLocaleString("th-TH", {
+            style: "currency",
+            currency: "THB",
+        });
+    const orderRevenue = (od) =>
+        (od?.products || []).reduce(
+            (s, p) => s + Number(p.price || 0) * Number(p.count || 0),
+            0
+        );
 
     const topCustomers = useMemo(() => {
         const map = new Map();
         for (const od of customersSource) {
             const u = od?.orderBuy || {};
             const key = u?.email || `UID-${u?.id}`;
-            const prev = map.get(key) || { name: `${u?.first_name || ""} ${u?.last_name || ""}`.trim() || key, orders: 0, revenue: 0 };
+            const prev =
+                map.get(key) || {
+                    name:
+                        `${u?.first_name || ""} ${u?.last_name || ""}`.trim() ||
+                        key,
+                    orders: 0,
+                    revenue: 0,
+                };
             prev.orders += 1;
             prev.revenue += orderRevenue(od);
             map.set(key, prev);
         }
-        return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+        return Array.from(map.values())
+            .sort((a, b) => b.revenue - a.revenue)
+            .slice(0, 8);
     }, [customersSource]);
 
     return (
         <Card>
-            <CardHeader title="ลูกค้า Top (ตามยอดซื้อ)" subtitle="ช่วงวันที่ไทยที่เลือก" icon={<Users className="h-5 w-5 text-indigo-600" />} />
+            <CardHeader
+                title="ลูกค้า Top (ตามยอดซื้อ)"
+                subtitle="ช่วงวันที่ไทยที่เลือก"
+                icon={<Users className="h-5 w-5 text-indigo-600" />}
+            />
             <div className="p-4">
                 {topCustomers.length === 0 ? (
                     <div className="text-sm text-gray-500">ไม่มีข้อมูล</div>
@@ -993,14 +1254,23 @@ function TopCustomersTable({ customersSource = [] }) {
                                     <tr key={c.name + idx} className="border-t">
                                         <td className="px-3 py-2">
                                             <div className="flex items-center gap-2">
-                                                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100">#{idx + 1}</span>
-                                                <span className="font-medium truncate max-w-[320px]" title={c.name}>
+                                                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100">
+                                                    #{idx + 1}
+                                                </span>
+                                                <span
+                                                    className="font-medium truncate max-w-[320px]"
+                                                    title={c.name}
+                                                >
                                                     {c.name}
                                                 </span>
                                             </div>
                                         </td>
-                                        <td className="px-3 py-2 text-right">{nfmt(c.orders)}</td>
-                                        <td className="px-3 py-2 text-right">{THB(c.revenue)}</td>
+                                        <td className="px-3 py-2 text-right">
+                                            {nfmt(c.orders)}
+                                        </td>
+                                        <td className="px-3 py-2 text-right">
+                                            {THB(c.revenue)}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -1013,7 +1283,12 @@ function TopCustomersTable({ customersSource = [] }) {
 }
 
 /* ======= แยกย่อยรีวิว ======= */
-function ReviewsPanels({ reviewStats, latestReviews, reviewTypeFilter, setReviewTypeFilter }) {
+function ReviewsPanels({
+    reviewStats,
+    latestReviews,
+    reviewTypeFilter,
+    setReviewTypeFilter,
+}) {
     const nfmt = (n) => (Number(n) || 0).toLocaleString();
     const reviewTypeFromTitle = (title) => {
         const t = String(title || "").trim();
@@ -1036,13 +1311,19 @@ function ReviewsPanels({ reviewStats, latestReviews, reviewTypeFilter, setReview
 
     const latestReviewsFiltered = useMemo(() => {
         if (!reviewTypeFilter) return latestReviews;
-        return (latestReviews || []).filter((rv) => reviewTypeFromTitle(rv?.productTitle) === reviewTypeFilter);
+        return (latestReviews || []).filter(
+            (rv) => reviewTypeFromTitle(rv?.productTitle) === reviewTypeFilter
+        );
     }, [latestReviews, reviewTypeFilter]);
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>
-                <CardHeader title="คะแนนรีวิวสินค้า (Top)" subtitle="ช่วงวันที่ไทยที่เลือก" icon={<Star className="h-5 w-5 text-yellow-400" />} />
+                <CardHeader
+                    title="คะแนนรีวิวสินค้า (Top)"
+                    subtitle="ช่วงวันที่ไทยที่เลือก"
+                    icon={<Star className="h-5 w-5 text-yellow-400" />}
+                />
                 <div className="p-4">
                     {reviewStats.length === 0 ? (
                         <div className="text-sm text-gray-500">ไม่มีข้อมูลรีวิว</div>
@@ -1061,17 +1342,24 @@ function ReviewsPanels({ reviewStats, latestReviews, reviewTypeFilter, setReview
                                         {reviewStats.map((r) => (
                                             <tr key={r.productId} className="border-t">
                                                 <td className="px-3 py-2">
-                                                    <span className="font-medium truncate max-w-[320px]" title={r.title}>
+                                                    <span
+                                                        className="font-medium truncate max-w-[320px]"
+                                                        title={r.title}
+                                                    >
                                                         {r.title}
                                                     </span>
                                                 </td>
                                                 <td className="px-3 py-2 text-right">
                                                     <span className="inline-flex items-center gap-1">
                                                         <Star className="h-4 w-4 fill-yellow-300 stroke-yellow-300" />
-                                                        {Number(r?.ratingAvg || 0).toFixed(2)}
+                                                        {Number(
+                                                            r?.ratingAvg || 0
+                                                        ).toFixed(2)}
                                                     </span>
                                                 </td>
-                                                <td className="px-3 py-2 text-right">{nfmt(r?.ratingCount)}</td>
+                                                <td className="px-3 py-2 text-right">
+                                                    {nfmt(r?.ratingCount)}
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -1084,7 +1372,9 @@ function ReviewsPanels({ reviewStats, latestReviews, reviewTypeFilter, setReview
 
             <Card>
                 <CardHeader
-                    title={`รีวิวล่าสุด (${nfmt(latestReviewsFiltered.length)} จาก ${nfmt(latestReviews.length)})`}
+                    title={`รีวิวล่าสุด (${nfmt(
+                        latestReviewsFiltered.length
+                    )} จาก ${nfmt(latestReviews.length)})`}
                     subtitle="ช่วงวันที่ไทยที่เลือก"
                     icon={<Star className="h-5 w-5 text-yellow-400" />}
                 />
@@ -1093,7 +1383,11 @@ function ReviewsPanels({ reviewStats, latestReviews, reviewTypeFilter, setReview
                         <button
                             type="button"
                             onClick={() => setReviewTypeFilter("")}
-                            className={`px-3 py-1.5 rounded-full text-sm ring-1 ${reviewTypeFilter === "" ? "bg-indigo-600 text-white ring-indigo-600" : "bg-white text-gray-700 ring-gray-200 hover:bg-gray-50"}`}
+                            className={`px-3 py-1.5 rounded-full text-sm ring-1 ${
+                                reviewTypeFilter === ""
+                                    ? "bg-indigo-600 text-white ring-indigo-600"
+                                    : "bg-white text-gray-700 ring-gray-200 hover:bg-gray-50"
+                            }`}
                             title="แสดงรีวิวทั้งหมด"
                         >
                             ทั้งหมด <span className="opacity-70"></span>
@@ -1102,23 +1396,44 @@ function ReviewsPanels({ reviewStats, latestReviews, reviewTypeFilter, setReview
                             <button
                                 key={type}
                                 type="button"
-                                onClick={() => setReviewTypeFilter((cur) => (cur === type ? "" : type))}
-                                className={`px-3 py-1.5 rounded-full text-sm ring-2 whitespace-nowrap ${reviewTypeFilter === type ? "bg-indigo-600 text-white ring-indigo-600" : "bg-white text-gray-900 ring-gray-200 hover:bg-gray-50"}`}
+                                onClick={() =>
+                                    setReviewTypeFilter((cur) =>
+                                        cur === type ? "" : type
+                                    )
+                                }
+                                className={`px-3 py-1.5 rounded-full text-sm ring-2 whitespace-nowrap ${
+                                    reviewTypeFilter === type
+                                        ? "bg-indigo-600 text-white ring-indigo-600"
+                                        : "bg-white text-gray-900 ring-gray-200 hover:bg-gray-50"
+                                }`}
                                 title={`รีวิวประเภท: ${type}`}
                             >
-                                {type} <span className="opacity-70">({nfmt(count)})</span>
+                                {type}{" "}
+                                <span className="opacity-70">
+                                    ({nfmt(count)})
+                                </span>
                             </button>
                         ))}
                     </div>
 
                     <div className="space-y-3 max-h-80 overflow-auto pr-1">
                         {(latestReviewsFiltered?.length ?? 0) === 0 ? (
-                            <div className="text-sm text-gray-500">{reviewTypeFilter ? "ไม่มีรีวิวในประเภทนี้" : "ไม่มีข้อมูลรีวิว"}</div>
+                            <div className="text-sm text-gray-500">
+                                {reviewTypeFilter
+                                    ? "ไม่มีรีวิวในประเภทนี้"
+                                    : "ไม่มีข้อมูลรีวิว"}
+                            </div>
                         ) : (
                             latestReviewsFiltered.map((rv) => (
-                                <div key={rv.id} className="p-3 rounded-xl border bg-gray-50">
+                                <div
+                                    key={rv.id}
+                                    className="p-3 rounded-xl border bg-gray-50"
+                                >
                                     <div className="flex items-center justify-between">
-                                        <div className="font-medium truncate max-w-[60%]" title={rv.productTitle}>
+                                        <div
+                                            className="font-medium truncate max-w-[60%]"
+                                            title={rv.productTitle}
+                                        >
                                             {rv.productTitle}
                                         </div>
                                         <div className="inline-flex items-center gap-1 text-sm">
@@ -1128,9 +1443,18 @@ function ReviewsPanels({ reviewStats, latestReviews, reviewTypeFilter, setReview
                                     </div>
 
                                     <div className="text-xs text-gray-500 mt-0.5">
-                                        โดย {rv.userName || "ผู้ใช้"} • {rv.createdAt ? new Date(rv.createdAt).toLocaleString("th-TH") : "-"}
+                                        โดย {rv.userName || "ผู้ใช้"} •{" "}
+                                        {rv.createdAt
+                                            ? new Date(
+                                                  rv.createdAt
+                                              ).toLocaleString("th-TH")
+                                            : "-"}
                                     </div>
-                                    {rv.text && <div className="text-sm text-gray-700 mt-2 whitespace-pre-line">{rv.text}</div>}
+                                    {rv.text && (
+                                        <div className="text-sm text-gray-700 mt-2 whitespace-pre-line">
+                                            {rv.text}
+                                        </div>
+                                    )}
                                 </div>
                             ))
                         )}

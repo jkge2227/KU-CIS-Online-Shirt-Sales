@@ -140,8 +140,8 @@ const calcTotal = (od) =>
 const hasPickupInfo = (od) => !!String(od?.pickupPlace || "").trim();
 
 // ===== Pagination config =====
-const DEFAULT_PAGE_SIZE = 10;
-const PAGE_SIZE_OPTIONS = [10, 20, 50];
+const DEFAULT_PAGE_SIZE = 5;
+const PAGE_SIZE_OPTIONS = [5, 20, 50];
 
 /* Debounce hook สำหรับช่องค้นหา */
 const useDebounced = (value, delay = 250) => {

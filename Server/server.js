@@ -68,7 +68,7 @@ app.use((err, req, res, next) => {
 });
 
 // --- Start server ---
-const port = Number(process.env.PORT || 5001);
+const port = Number(process.env.PORT || 5002);
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
