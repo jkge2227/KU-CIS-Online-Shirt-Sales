@@ -840,8 +840,8 @@ const StatusOrder = () => {
             }
             disabled={selectedReadyIds.length === 0}
             className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg ring-1 ${selectedReadyIds.length === 0
-                ? "bg-gray-100 text-gray-400 ring-gray-200 cursor-not-allowed"
-                : "bg-blue-50 text-blue-700 ring-blue-200 hover:bg-blue-100"
+              ? "bg-gray-100 text-gray-400 ring-gray-200 cursor-not-allowed"
+              : "bg-blue-50 text-blue-700 ring-blue-200 hover:bg-blue-100"
               }`}
             title="ทำการเลือกรายการก่อน"
           >
@@ -935,7 +935,8 @@ const StatusOrder = () => {
                 const canSelect =
                   enumStatus === STATUS.CONFIRMED;
                 const cancelDisabled =
-                  enumStatus === STATUS.COMPLETED;
+                  enumStatus === STATUS.COMPLETED ||
+                  enumStatus === STATUS.CONFIRMED;
 
                 const isExpanded =
                   !!expandedOrders[od.id];
@@ -1107,9 +1108,9 @@ const StatusOrder = () => {
                       <div className="flex items-center justify-end gap-3">
                         <select
                           className={`w-44 h-9 border rounded-lg px-2 text-sm shrink-0 ${enumStatus === STATUS.CANCELED ||
-                              enumStatus === STATUS.COMPLETED
-                              ? "opacity-60 cursor-not-allowed"
-                              : ""
+                            enumStatus === STATUS.COMPLETED
+                            ? "opacity-60 cursor-not-allowed"
+                            : ""
                             }`}
                           value={enumStatus}
                           disabled={
@@ -1186,8 +1187,8 @@ const StatusOrder = () => {
                               cancelDisabled
                             }
                             className={`h-9 min-w-[84px] inline-flex items-center justify-center gap-1 px-3 rounded-lg ${cancelDisabled
-                                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                                : "bg-red-100 text-red-700 hover:bg-red-200"
+                              ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                              : "bg-red-100 text-red-700 hover:bg-red-200"
                               }`}
                             title={
                               cancelDisabled
@@ -1368,8 +1369,8 @@ const StatusOrder = () => {
                 onClick={sendPickup}
                 disabled={!canSendPickup}
                 className={`px-4 py-2 rounded-lg text-white inline-flex items-center gap-2 ${!canSendPickup
-                    ? "bg-blue-300 cursor-not-allowed"
-                    : "bg-blue-600 hover:bg-blue-700"
+                  ? "bg-blue-300 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700"
                   }`}
               >
                 <Send className="h-4 w-4" />{" "}
@@ -1558,8 +1559,8 @@ const StatusOrder = () => {
                           setCancelReason(r)
                         }
                         className={`px-3 py-1.5 rounded-full text-sm border transition ${active
-                            ? "bg-red-50 text-red-700 border-red-200"
-                            : "bg-white text-gray-700 hover:bg-gray-50"
+                          ? "bg-red-50 text-red-700 border-red-200"
+                          : "bg-white text-gray-700 hover:bg-gray-50"
                           }`}
                       >
                         {r}
@@ -1627,8 +1628,8 @@ const StatusOrder = () => {
                   !cancelReason.trim()
                 }
                 className={`px-4 py-2 rounded-lg text-white inline-flex items-center gap-2 ${!cancelReason.trim()
-                    ? "bg-red-300 cursor-not-allowed"
-                    : "bg-red-600 hover:bg-red-700"
+                  ? "bg-red-300 cursor-not-allowed"
+                  : "bg-red-600 hover:bg-red-700"
                   }`}
               >
                 <XCircle className="h-4 w-4" />{" "}

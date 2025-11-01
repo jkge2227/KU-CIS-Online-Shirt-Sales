@@ -1,9 +1,18 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { Trash2, CircleMinus, CirclePlus, Settings2, X, ShoppingBag, Info } from "lucide-react";
+import {
+  Trash2,
+  CircleMinus,
+  CirclePlus,
+  Settings2,
+  X,
+  ShoppingBag,
+  Info,
+} from "lucide-react";
 import useEcomStore from "../../store/ecom-store";
 import { Link, useNavigate } from "react-router-dom";
-import { createUserCart, saveOrder } from "../../api/users";
+import { createUserCart, saveOrder, emptyCart } from "../../api/users";
 import axios from "axios";
+import { toast } from "react-toastify";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:5001/api";
 
@@ -48,19 +57,16 @@ const CartCard = () => {
       console.warn("⚠️ actionChangeVariant missing in store. Implement it.");
     });
 
-  // หมายเหตุ: เดิม getTotalPrice รวมทั้งตะกร้า — ตอนนี้เราคิดเฉพาะที่เลือก แยกเองด้านล่าง
   const navigate = useNavigate();
 
   // ---------- SELECTION ----------
   const [selectedKeys, setSelectedKeys] = useState(new Set());
 
-  // เมื่อ carts เปลี่ยน ให้รักษาการเลือกเท่าที่ยังมีอยู่ และเลือกอัตโนมัติทั้งหมดครั้งแรก
   useEffect(() => {
     const existing = new Set(selectedKeys);
     const keysInCart = new Set(carts.map((i) => i.key));
     const next = new Set([...existing].filter((k) => keysInCart.has(k)));
     if (next.size === 0 && carts.length > 0) {
-      // ครั้งแรกหรือหลังลบหมด เลือกทั้งหมดให้ก่อนเพื่อความสะดวก
       carts.forEach((i) => next.add(i.key));
     }
     setSelectedKeys(next);
@@ -78,12 +84,40 @@ const CartCard = () => {
 
   const selectAll = () => setSelectedKeys(new Set(carts.map((i) => i.key)));
   const clearSelection = () => setSelectedKeys(new Set());
-  const removeSelected = () => {
+
+  // ---------- helper: sync cart ไป server ----------
+  const syncCartToServer = async (nextCart) => {
+    if (!token) return;
+    try {
+      // 🔴 จุดสำคัญ: ถ้าหลังลบแล้วเหลือ 0 ชิ้น ให้เรียก emptyCart
+      if (!nextCart || nextCart.length === 0) {
+        await emptyCart(token);
+      } else {
+        await createUserCart(token, { cart: nextCart });
+      }
+    } catch (err) {
+      console.error("sync cart failed", err);
+    }
+  };
+
+  // ---------- ลบรายการที่เลือก ----------
+  const removeSelected = async () => {
+    if (selectedKeys.size === 0) return;
+
+    const nextCart = carts.filter((i) => !selectedKeys.has(i.key));
+
+    // ลบใน local ก่อน
     carts.forEach((i) => {
       if (selectedKeys.has(i.key)) {
         actionRemoveProduct(i.productId, i.variantId);
       }
     });
+
+    // sync ไป server (จะเลือก emptyCart ให้ถ้าตะกร้าว่าง)
+    await syncCartToServer(nextCart);
+
+    // เคลียร์ selection
+    setSelectedKeys(new Set());
   };
 
   const selectedItems = useMemo(
@@ -91,7 +125,7 @@ const CartCard = () => {
     [carts, selectedKeys]
   );
 
-  // ---------- SUMMARY (เฉพาะที่เลือก) ----------
+  // ---------- SUMMARY ----------
   const totalCount = useMemo(
     () => selectedItems.reduce((sum, i) => sum + (Number(i.count) || 0), 0),
     [selectedItems]
@@ -105,26 +139,6 @@ const CartCard = () => {
       ),
     [selectedItems]
   );
-
-  const EmptyState = () => (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border bg-white p-10 text-center">
-      <ShoppingBag className="h-10 w-10 text-gray-400" />
-      <div className="text-base font-semibold text-gray-800">ยังไม่มีสินค้าในตะกร้า</div>
-      <p className="text-sm text-gray-500">
-        เมื่อคุณเพิ่มสินค้าลงตะกร้า ระบบจะแสดงรายการสินค้าที่นี่
-      </p>
-    </div>
-  );
-
-  // ปุ่มตัวเลือกแบบชิป
-  const chipClass = (active) =>
-    [
-      "px-3 py-1.5 rounded-full border text-sm transition",
-      "focus:outline-none focus:ring-2 focus:ring-gray-300",
-      active
-        ? "bg-gray-900 text-white border-gray-900"
-        : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50",
-    ].join(" ");
 
   // ---------- EDIT VARIANT MODAL ----------
   const [editOpen, setEditOpen] = useState(false);
@@ -163,9 +177,7 @@ const CartCard = () => {
   const openEdit = async (item) => {
     try {
       const res = await axios.get(`${API}/products/${item.productId}/variants`);
-      const list = Array.isArray(res.data)
-        ? res.data
-        : res.data?.variants ?? [];
+      const list = Array.isArray(res.data) ? res.data : res.data?.variants ?? [];
       setVariants(list);
       setEditingItem(item);
       setSizeSel(item.sizeName || "");
@@ -227,7 +239,7 @@ const CartCard = () => {
     }
   }, [editOpen, sizeOptions, genOptions, sizeSel, genSel]);
 
-  const saveEditVariant = () => {
+  const saveEditVariant = async () => {
     if (!editingItem || !selectedVariant) return;
     const match = selectedVariant;
     const newLine = {
@@ -245,7 +257,21 @@ const CartCard = () => {
       ),
       maxStock: Number(match.quantity ?? Infinity),
     };
+    // local
     actionChangeVariant(editingItem.productId, editingItem.variantId, newLine);
+
+    // sync
+    const nextCart = carts.map((c) => {
+      if (
+        c.productId === editingItem.productId &&
+        c.variantId === editingItem.variantId
+      ) {
+        return newLine;
+      }
+      return c;
+    });
+    await syncCartToServer(nextCart);
+
     setEditOpen(false);
     setEditingItem(null);
   };
@@ -263,13 +289,11 @@ const CartCard = () => {
     try {
       setSubmitting(true);
 
-      // 1) sync เฉพาะรายการที่เลือกขึ้นเซิร์ฟเวอร์
-      await createUserCart(token, { cart: selectedItems }); // ถ้า enabled=false -> 403 โดนที่นี่
-
-      // 2) สร้างคำสั่งซื้อ
+      // sync เฉพาะที่เลือก
+      await createUserCart(token, { cart: selectedItems });
       await saveOrder(token);
 
-      // 3) ลบเฉพาะรายการที่เลือกออกจากตะกร้า local
+      // ลบเฉพาะที่เลือกใน local
       selectedItems.forEach((i) => actionRemoveProduct(i.productId, i.variantId));
 
       setConfirmOpen(false);
@@ -279,12 +303,9 @@ const CartCard = () => {
       const msg = e?.response?.data?.message || "ดำเนินการสั่งซื้อไม่สำเร็จ";
 
       if (status === 403) {
-        // เคส “บัญชีถูกปิดใช้งาน: อนุญาตเฉพาะการอ่านข้อมูล”
         toast.error(msg);
-        // ไม่ต้อง rollback อะไรเพิ่ม เพราะเรายังไม่ได้ remove จากตะกร้า (อยู่หลัง saveOrder)
       } else if (status === 401) {
         toast.error("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่");
-        // ตัวเลือก: logout() แล้ว redirect ไปหน้า login
       } else {
         toast.error(msg);
       }
@@ -293,13 +314,43 @@ const CartCard = () => {
     }
   };
 
+  // ---------- HANDLE CLEAR ALL ----------
+  const handleClearAll = async () => {
+    actionAllRemoveProduct();
+    setSelectedKeys(new Set());
+    if (token) {
+      try {
+        await emptyCart(token);
+      } catch (err) {
+        console.error("empty cart failed", err);
+      }
+    }
+  };
+
+  const EmptyState = () => (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border bg-white p-10 text-center">
+      <ShoppingBag className="h-10 w-10 text-gray-400" />
+      <div className="text-base font-semibold text-gray-800">ยังไม่มีสินค้าในตะกร้า</div>
+      <p className="text-sm text-gray-500">
+        เมื่อคุณเพิ่มสินค้าลงตะกร้า ระบบจะแสดงรายการสินค้าที่นี่
+      </p>
+    </div>
+  );
+
+  const chipClass = (active) =>
+    [
+      "px-3 py-1.5 rounded-full border text-sm transition",
+      "focus:outline-none focus:ring-2 focus:ring-gray-300",
+      active
+        ? "bg-gray-900 text-white border-gray-900"
+        : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50",
+    ].join(" ");
 
   // ---------- RENDER ----------
   return (
     <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 p-4 md:p-4">
-      {/* ซ้าย: รายการสินค้า */}
+      {/* ซ้าย */}
       <div className="md:col-span-2 space-y-4">
-        {/* แถบหัวตะกร้า / การเลือก */}
         <div className="bg-white border rounded-xl p-3 flex flex-wrap items-center gap-2 justify-between">
           <div className="text-sm text-gray-700">
             เลือกแล้ว{" "}
@@ -338,34 +389,68 @@ const CartCard = () => {
                 โปรดเข้าสู่ระบบเพื่อดูคำสั่งซื้อของคุณ
               </div>
             )}
-            <div>
-              <EmptyState />
-            </div>
+            <EmptyState />
           </div>
         ) : (
           carts.map((item) => {
             const unitPrice = Number(item.price || 0);
             const count = Number(item.count || 0);
-            const lineTotal = unitPrice * count;
-
             const maxStock =
               item.maxStock != null
                 ? Number(item.maxStock)
                 : Number.POSITIVE_INFINITY;
-
             const decDisabled = count <= 1;
             const incDisabled = Number.isFinite(maxStock)
               ? count >= maxStock
               : false;
-
             const checked = selectedKeys.has(item.key);
+
+            // ลบทีละชิ้น
+            const handleRemoveOne = async () => {
+              const nextCart = carts.filter(
+                (c) =>
+                  !(
+                    c.productId === item.productId &&
+                    c.variantId === item.variantId
+                  )
+              );
+              actionRemoveProduct(item.productId, item.variantId);
+              await syncCartToServer(nextCart);
+            };
+
+            // ลดจำนวน
+            const handleDecrease = async () => {
+              const next = Math.max(1, count - 1);
+              if (next === count) return;
+              actionUpdateQuantity(item.productId, item.variantId, next);
+              const nextCart = carts.map((c) => {
+                if (c.key === item.key) {
+                  return { ...c, count: next };
+                }
+                return c;
+              });
+              await syncCartToServer(nextCart);
+            };
+
+            // เพิ่มจำนวน
+            const handleIncrease = async () => {
+              const next = count + 1;
+              if (incDisabled) return;
+              actionUpdateQuantity(item.productId, item.variantId, next);
+              const nextCart = carts.map((c) => {
+                if (c.key === item.key) {
+                  return { ...c, count: next };
+                }
+                return c;
+              });
+              await syncCartToServer(nextCart);
+            };
 
             return (
               <div
                 key={item.key}
                 className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border"
               >
-                {/* Left: checkbox + Image + Info */}
                 <div className="flex items-center gap-4">
                   <input
                     type="checkbox"
@@ -398,20 +483,24 @@ const CartCard = () => {
                     </div>
 
                     <div className="text-sm text-gray-600">
-                      ราคา: <span className="font-semibold text-gray-800">{unitPrice.toLocaleString()}</span> บาท
+                      ราคา:{" "}
+                      <span className="font-semibold text-gray-800">
+                        {unitPrice.toLocaleString()}
+                      </span>{" "}
+                      บาท
                     </div>
-
 
                     {Number.isFinite(maxStock) && (
                       <p
-                        className={`text-xs ${Number(maxStock) < 9 ? "text-red-600" : "text-gray-700"
+                        className={`text-xs ${Number(maxStock) < 9
+                            ? "text-red-600"
+                            : "text-gray-700"
                           }`}
                       >
                         สต็อกคงเหลือ: {maxStock} ตัว
                       </p>
                     )}
 
-                    {/* ปุ่มแก้ไซส์/รุ่น */}
                     <button
                       onClick={() => openEdit(item)}
                       className="mt-1 inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md ring-1 ring-gray-300 hover:bg-gray-50"
@@ -423,50 +512,28 @@ const CartCard = () => {
                   </div>
                 </div>
 
-                {/* Right: Quantity + Remove */}
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2">
-                    {/* ลดจำนวน */}
                     <button
-                      onClick={() => {
-                        const next = Math.max(1, count - 1);
-                        if (next !== count) {
-                          actionUpdateQuantity(
-                            item.productId,
-                            item.variantId,
-                            next
-                          );
-                        }
-                      }}
+                      onClick={handleDecrease}
                       disabled={decDisabled}
                       className={`w-8 h-8 rounded-full flex items-center justify-center border transition ${decDisabled
-                        ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                        : "bg-white hover:bg-red-500 hover:text-white"
+                          ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                          : "bg-white hover:bg-red-500 hover:text-white"
                         }`}
                       title="ลดจำนวน"
                     >
                       <CircleMinus />
                     </button>
 
-                    {/* จำนวน */}
                     <span className="px-2 text-black font-medium">{count}</span>
 
-                    {/* เพิ่มจำนวน */}
                     <button
-                      onClick={() => {
-                        const next = count + 1;
-                        if (!incDisabled) {
-                          actionUpdateQuantity(
-                            item.productId,
-                            item.variantId,
-                            next
-                          );
-                        }
-                      }}
+                      onClick={handleIncrease}
                       disabled={incDisabled}
                       className={`w-8 h-8 rounded-full flex items-center justify-center border transition ${incDisabled
-                        ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                        : "bg-white hover:bg-gray-800 hover:text-white"
+                          ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                          : "bg-white hover:bg-gray-800 hover:text-white"
                         }`}
                       title="เพิ่มจำนวน"
                     >
@@ -474,11 +541,8 @@ const CartCard = () => {
                     </button>
                   </div>
 
-                  {/* ลบรายการ */}
                   <button
-                    onClick={() =>
-                      actionRemoveProduct(item.productId, item.variantId)
-                    }
+                    onClick={handleRemoveOne}
                     className="text-black hover:text-red-500 flex items-center"
                     title="ลบสินค้า"
                   >
@@ -491,9 +555,8 @@ const CartCard = () => {
         )}
       </div>
 
-      {/* ขวา: Summary */}
+      {/* ขวา */}
       <div className="bg-white border rounded-xl shadow-sm p-4 h-fit md:sticky md:top-4">
-        {/* ข้อมูลผู้ใช้ */}
         {users ? (
           <div className="mb-3 text-sm">
             <p>
@@ -522,7 +585,10 @@ const CartCard = () => {
           </div>
           <p className="text-sm text-amber-800 leading-relaxed">
             โปรดมารับสินค้าภายใน <b>3 วัน</b> นับจากสถานะ
-            <span className="font-semibold text-amber-700"> “ผู้ขายจัดเตรียมสินค้าแล้วรอผู้ซื้อมารับ” </span>
+            <span className="font-semibold text-amber-700">
+              {" "}
+              “ผู้ขายจัดเตรียมสินค้าแล้วรอผู้ซื้อมารับ”{" "}
+            </span>
             มิฉะนั้นระบบจะยกเลิกอัตโนมัติ
           </p>
         </div>
@@ -561,7 +627,7 @@ const CartCard = () => {
         )}
 
         <button
-          onClick={actionAllRemoveProduct}
+          onClick={handleClearAll}
           className="w-full bg-red-500 text-white py-2.5 rounded-lg hover:bg-red-600 transition"
         >
           ล้างตะกร้าสินค้าทั้งหมด
@@ -598,7 +664,6 @@ const CartCard = () => {
         }
       >
         <div className="space-y-3">
-          {/* SIZE */}
           <div>
             <label className="block text-sm mb-2 text-gray-700">
               ขนาด (Size)
@@ -625,7 +690,6 @@ const CartCard = () => {
             )}
           </div>
 
-          {/* GENERATION */}
           <div>
             <label className="block text-sm mb-2 text-gray-700">
               รุ่น (Generation)
@@ -654,12 +718,11 @@ const CartCard = () => {
             )}
           </div>
 
-          {/* STOCK ของคู่ที่เลือก */}
           {selectedVariant && (
             <div
               className={`text-sm ${Number(selectedVariant.quantity || 0) < 9
-                ? "text-red-600"
-                : "text-gray-700"
+                  ? "text-red-600"
+                  : "text-gray-700"
                 }`}
             >
               สต็อกคงเหลือของตัวเลือกนี้:{" "}

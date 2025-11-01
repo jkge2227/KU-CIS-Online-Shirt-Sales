@@ -968,7 +968,7 @@ export default function AdminSalesDashboard() {
                                                         )
                                                     );
                                                     const label = `${pct.toFixed(
-                                                        1
+                                                        2
                                                     )}%`;
 
                                                     const a = -midAngle * RAD;
