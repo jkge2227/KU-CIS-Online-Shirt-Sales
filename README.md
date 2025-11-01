@@ -1,3 +1,14 @@
+
+# วิดีโอแนะนำ ระบบขายเสื้อ KU CIS ออนไลน์
+
+https://drive.google.com/file/d/1H792-0InFVX3Y937ZLuYjsNl3vq_1Poj/view?usp=sharing
+
+# วิดีโอจุดที่แก้ไข ระบบขายเสื้อ KU CIS ออนไลน์
+
+https://drive.google.com/file/d/1OGUP2IyLxiq5Ib7-7Fvr9g09ec-tylGs/view?usp=sharing
+
+
+
 # How to run Docker
 
 1. ติดตั้ง Docker Desktop
